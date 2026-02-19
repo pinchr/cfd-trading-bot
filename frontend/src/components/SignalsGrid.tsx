@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSWR } from 'swr';
 import { apiUrl } from "../api";
 
 interface Signal {
@@ -110,6 +111,7 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
 }) => {
   const [signals, setSignals] = useState<Signal[]>(defaultSignals);
   const [loading, setLoading] = useState(false);
+const [lastRefresh, setLastRefresh] = useState(new Date().toLocaleTimeString('pl-PL'));
   const [tradingSymbol, setTradingSymbol] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -127,6 +129,51 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
     displayStopLoss: "",
     displaySelectedSize: "",
   });
+
+  const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
+  const { data, error: signalsError, isLoading: signalsLoading } = useSWR('/api/signals', fetcher, {
+    refreshInterval: 10000,
+    revalidateOnFocus: false,
+  });
+
+  useEffect(() => {
+    if (data) {
+      const fetchedSignals: Signal[] = (data.signals || []).map((sig: any, idx: number) => ({
+        id: `${idx}`,
+        symbol: sig.symbol,
+        score: sig.score,
+        direction: sig.direction.toLowerCase().includes("buy") ? "buy" : sig.direction.toLowerCase().includes("sell") ? "sell" : "neutral",
+        entry_point: sig.entry_point || sig.current_price,
+        current_price: sig.current_price,
+        take_profit: sig.take_profit,
+        stop_loss: sig.stop_loss,
+        confidence: sig.confidence,
+        risk_reward_ratio: sig.risk_reward_ratio,
+        technical_score: sig.technical_score,
+        news_score: sig.news_score,
+        components: sig.components,
+        trend: [sig.score * 0.5, sig.score * 0.6, sig.score * 0.7, sig.score * 0.8, sig.score * 0.9, sig.score],
+      }));
+
+      const signalMap = new Map(fetchedSignals.map((s) => [s.symbol, s]));
+      const mergedSignals = ALL_INSTRUMENTS.map((sym, idx) => signalMap.get(sym) || {
+        id: `default-${idx}`,
+        symbol: sym,
+        score: 0,
+        direction: "neutral",
+        confidence: 0,
+        trend: [],
+      });
+      setSignals(mergedSignals);
+      setLastRefresh(new Date().toLocaleTimeString('pl-PL'));
+    }
+  }, [data]);
+
+  if (signalsError) {
+    console.error('Signals error:', signalsError);
+    setErrorMessage('Błąd ładowania signals: ' + signalsError.message);
+  }
 
   const [hoveredIndicator, setHoveredIndicator] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{
