@@ -46,7 +46,7 @@ export const NewsTab: React.FC = () => {
     };
 
     fetchNews();
-    const interval = setInterval(fetchNews, 120000);
+    const interval = setInterval(fetchNews, 10800000); // 3h
     return () => clearInterval(interval);
   }, []);
 
@@ -78,9 +78,18 @@ export const NewsTab: React.FC = () => {
         >
           News & Sentiment
         </span>
-        <span className="text-[10px]" style={{ color: "#374131" }}>
-          {newsData.length} articles
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => fetchNews()}
+            disabled={loading}
+            className="px-3 py-1 text-xs bg-[#1a1f35]/50 hover:bg-blue-500/70 rounded border border-[#2a3349]/50 text-[#e2e8f0] transition-all font-medium"
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+          <span className="text-[10px]" style={{ color: "#374151" }}>
+            {newsData.length} articles
+          </span>
+        </div>
       </div>
 
       {/* Content */}

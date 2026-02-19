@@ -10,8 +10,8 @@ const CANDLE_COUNTS: Record<string, number> = {
   "5": 72, // 6 hours of 5m candles
   "15": 80, // 20 hours of 15m candles
   "30": 80, // ~40 hours of 30m candles
-  "60": 100, // ~4 days of 1h candles
-  D: 150, // ~5 months of daily candles
+  "60": 72, // 3 days of 1h candles
+  "D": 90, // ~3 months of daily candles
 };
 
 interface MainTabProps {

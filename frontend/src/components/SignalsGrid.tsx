@@ -148,74 +148,73 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
       "Patterns: hammer/engulfing bullish reversal buy; shooting star sell caution.",
   };
 
+  import { useSWR } from 'swr';
+
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch');
+  return res.json();
+};
+
+[...]
+
+  const { data, error, isLoading } = useSWR('/api/signals', fetcher, {
+    refreshInterval: 10000,
+    revalidateOnFocus: false,
+  });
+
+  const [lastRefresh, setLastRefresh] = useState(new Date().toLocaleTimeString());
+
   useEffect(() => {
-    if (externalSignals && externalSignals.length > 0) {
-      setSignals(externalSignals);
-      return;
+    if (data) {
+      const fetchedSignals: Signal[] = (data.signals || []).map(
+        (sig: any, idx: number) => ({
+          id: `${idx}`,
+          symbol: sig.symbol,
+          score: sig.score,
+          direction: sig.direction.toLowerCase().includes("buy")
+            ? "buy"
+            : sig.direction.toLowerCase().includes("sell")
+              ? "sell"
+              : "neutral",
+          entry_point: sig.entry_point || sig.current_price,
+          current_price: sig.current_price,
+          take_profit: sig.take_profit,
+          stop_loss: sig.stop_loss,
+          confidence: sig.confidence,
+          risk_reward_ratio: sig.risk_reward_ratio,
+          technical_score: sig.technical_score,
+          news_score: sig.news_score,
+          components: sig.components,
+          trend: [
+            sig.score * 0.5,
+            sig.score * 0.6,
+            sig.score * 0.7,
+            sig.score * 0.8,
+            sig.score * 0.9,
+            sig.score,
+          ],
+        }),
+      );
+
+      const signalMap = new Map(fetchedSignals.map((s) => [s.symbol, s]));
+      const mergedSignals = ALL_INSTRUMENTS.map(
+        (sym, idx) =>
+          signalMap.get(sym) || {
+            id: `default-${idx}`,
+            symbol: sym,
+            score: 0,
+            direction: "neutral",
+            confidence: 0,
+            trend: [],
+          },
+      );
+      setSignals(mergedSignals);
+      setLastRefresh(new Date().toLocaleTimeString());
     }
+  }, [data]);
 
-    const fetchSignals = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch(apiUrl("signals"));
-        if (response.ok) {
-          const data = await response.json();
-          const fetchedSignals: Signal[] = (data.signals || []).map(
-            (sig: any, idx: number) => ({
-              id: `${idx}`,
-              symbol: sig.symbol,
-              score: sig.score,
-              direction: sig.direction.toLowerCase().includes("buy")
-                ? "buy"
-                : sig.direction.toLowerCase().includes("sell")
-                  ? "sell"
-                  : "neutral",
-              entry_point: sig.entry_point || sig.current_price,
-              current_price: sig.current_price,
-              take_profit: sig.take_profit,
-              stop_loss: sig.stop_loss,
-              confidence: sig.confidence,
-              risk_reward_ratio: sig.risk_reward_ratio,
-              technical_score: sig.technical_score,
-              news_score: sig.news_score,
-              components: sig.components,
-              trend: [
-                sig.score * 0.5,
-                sig.score * 0.6,
-                sig.score * 0.7,
-                sig.score * 0.8,
-                sig.score * 0.9,
-                sig.score,
-              ],
-            }),
-          );
-
-          // Ensure all instruments have a row, even if no signal was returned
-          const signalMap = new Map(fetchedSignals.map((s) => [s.symbol, s]));
-          const mergedSignals = ALL_INSTRUMENTS.map(
-            (sym, idx) =>
-              signalMap.get(sym) || {
-                id: `default-${idx}`,
-                symbol: sym,
-                score: 0,
-                direction: "neutral",
-                confidence: 0,
-                trend: [],
-              },
-          );
-          setSignals(mergedSignals);
-        }
-      } catch (error) {
-        console.error("Failed to fetch signals:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSignals();
-    const interval = setInterval(fetchSignals, 10000); // Refresh every 10 seconds (less aggressive)
-    return () => clearInterval(interval);
-  }, [externalSignals]);
+  if (error) setErrorMessage(error.message);
 
   const openTradeModal = async (symbol: string, direction: "buy" | "sell") => {
     setTradingSymbol(symbol);

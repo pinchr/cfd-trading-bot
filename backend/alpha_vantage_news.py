@@ -40,7 +40,7 @@ class AlphaVantageNewsClient:
         self.client = httpx.Client(timeout=10)
         self.cache: Dict[str, List] = {}
         self.cache_time: Dict[str, float] = {}
-        self.cache_ttl = 600  # Cache for 10 minutes (news doesn't change fast)
+        self.cache_ttl = 3*3600  # Cache for 10 minutes (news doesn't change fast)
         self.last_api_call = 0.0
         self.min_interval = 13.0  # Alpha Vantage free: 5 calls/min
 
@@ -88,10 +88,10 @@ class AlphaVantageNewsClient:
 
             # Check for API error messages (rate limit, invalid key, etc.)
             if "Information" in data:
-                print(f"[NEWS] API limit: {data['Information'][:80]}")
+                print(f"[NEWS] API limit: {data['Information'][:180]}")
                 return []
             if "Error Message" in data:
-                print(f"[NEWS] API error: {data['Error Message'][:80]}")
+                print(f"[NEWS] API error: {data['Error Message'][:180]}")
                 return []
 
             if "feed" not in data:

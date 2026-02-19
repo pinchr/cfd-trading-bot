@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiUrl } from "../api";
+import { DateTime } from 'luxon';
 
 interface Position {
   id: string;
@@ -50,36 +51,37 @@ export const TradesTab: React.FC = () => {
     localStorage.setItem("cfd_tradesSection", activeSection);
   }, [activeSection]);
 
-  const fetchData = async () => {
-    try {
-      const [openRes, histRes] = await Promise.all([
-        fetch(apiUrl("trades/open")),
-        fetch(apiUrl("trades/history")),
-      ]);
-      if (openRes.ok) {
-        const data = await openRes.json();
-        setOpenPositions(data.positions || []);
-      }
-      if (histRes.ok) {
-        const data = await histRes.json();
-        setClosedTrades(data.trades || []);
-        setStats({
-          win_count: data.win_count || 0,
-          loss_count: data.loss_count || 0,
-          win_rate: data.win_rate || 0,
-          total_pnl_usd: data.total_pnl_usd || 0,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to fetch trades:", error);
-    }
-  };
+import { useSWR } from 'swr';
+
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch');
+  return res.json();
+};
+
+[...]
+
+  const { data: openData, error: openError, isLoading: openLoading } = useSWR('/api/trades/open', fetcher, { refreshInterval: 60000 });
+  const { data: histData, error: histError, isLoading: histLoading } = useSWR('/api/trades/history', fetcher, { refreshInterval: 60000 });
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 60000); // Refresh every 60 seconds
-    return () => clearInterval(interval);
-  }, []);
+    if (openData) setOpenPositions(openData.positions || []);
+  }, [openData]);
+
+  useEffect(() => {
+    if (histData) {
+      setClosedTrades(histData.trades || []);
+      setStats({
+        win_count: histData.win_count || 0,
+        loss_count: histData.loss_count || 0,
+        win_rate: histData.win_rate || 0,
+        total_pnl_usd: histData.total_pnl_usd || 0,
+      });
+    }
+  }, [histData]);
+
+  const loading = openLoading || histLoading;
+  const error = openError || histError;
 
   const closeTrade = async (positionId: string) => {
     setClosingId(positionId);
@@ -104,12 +106,8 @@ export const TradesTab: React.FC = () => {
   };
 
   const formatTime = (dateStr: string): string => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString("en-GB", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    const dt = DateTime.fromISO(dateStr, { zone: 'Europe/Warsaw' });
+    return dt.toFormat('HH:mm:ss');
   };
 
   return (
