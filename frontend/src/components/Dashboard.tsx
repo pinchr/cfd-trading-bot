@@ -490,6 +490,11 @@ export const Dashboard: React.FC = () => {
                     id="backtest-resolution"
                     className="p-2 rounded text-sm"
                     style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                    onChange={() => {
+                      // Auto-refresh chart when resolution changes
+                      const btn = document.getElementById("run-backtest-btn") as HTMLButtonElement;
+                      if (btn) btn.click();
+                    }}
                   >
                     <option value="5">5m</option>
                     <option value="15">15m</option>
