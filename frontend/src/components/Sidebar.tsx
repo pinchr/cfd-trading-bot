@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiUrl } from "../api";
-import { TradingToggle, BrokerToggle } from "./GlassToggle";
+import { TradingToggle, BrokerToggle, DynamicPositionsToggle } from "./GlassToggle";
 
 // Trading Sessions - major market hours in UTC
 interface TradingSession {
@@ -108,6 +108,10 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulation", autoTrade = false, onBrokerChange, onAutoTradeChange }) => {
   const [lastScan, setLastScan] = useState("--");
   const [isScanning, setIsScanning] = useState(false);
+  const [dynamicPositions, setDynamicPositions] = useState(() => {
+    const saved = localStorage.getItem("dynamicPositions");
+    return saved ? JSON.parse(saved) : false;
+  });
 
   const handleBrokerChange = async (newBroker: "simulation" | "ibkr") => {
     onBrokerChange?.(newBroker);
@@ -124,6 +128,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
       await fetch(`${apiUrl("trading-mode")}?broker=${broker}&autoTrade=${enabled}`, { method: "POST" });
     } catch (e) {
       console.error("Failed to set mode:", e);
+    }
+  };
+
+  const handleDynamicPositionsChange = async (enabled: boolean) => {
+    setDynamicPositions(enabled);
+    localStorage.setItem("dynamicPositions", JSON.stringify(enabled));
+    try {
+      await fetch(`${apiUrl("settings/dynamic-positions")}?enabled=${enabled}`, { method: "POST" });
+    } catch (e) {
+      console.error("Failed to set dynamic positions:", e);
     }
   };
 
@@ -254,6 +268,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
       <BrokerToggle
         value={broker}
         onChange={handleBrokerChange}
+      />
+
+      {/* Dynamic Positions */}
+      <DynamicPositionsToggle
+        value={dynamicPositions}
+        onChange={handleDynamicPositionsChange}
       />
 
       {/* Instruments

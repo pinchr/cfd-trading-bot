@@ -146,15 +146,40 @@ export const TradesTab: React.FC = () => {
     return price.toFixed(4);
   };
 
-  const formatTime = (dateStr: string): string => {
+  const formatTime = (dateStr: string, includeDate = false): string => {
     // Parse as UTC and convert to Warsaw time
     const date = new Date(dateStr.replace('Z', '+00:00'));
     // Warsaw is UTC+1 (or UTC+2 during DST)
     const warsawDate = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' }));
+    
+    if (includeDate) {
+      // Show date + time for trades
+      return warsawDate.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: 'Europe/Warsaw',
+      });
+    }
+    // Just time for recent trades
     return warsawDate.toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
+      timeZone: 'Europe/Warsaw',
+    });
+  };
+
+  const getDateGroup = (dateStr: string): string => {
+    // Group trades by day
+    const date = new Date(dateStr.replace('Z', '+00:00'));
+    const warsawDate = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' }));
+    return warsawDate.toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
       timeZone: 'Europe/Warsaw',
     });
   };
@@ -339,7 +364,7 @@ export const TradesTab: React.FC = () => {
                           </div>
                           <div>
                             <span style={{ color: "var(--text-muted)" }}>
-                              {formatTime(pos.opened_at)}
+                              {formatTime(pos.opened_at, true)}
                             </span>
                           </div>
                         </div>
@@ -508,7 +533,7 @@ export const TradesTab: React.FC = () => {
                             className="px-3 py-2.5 text-center"
                             style={{ color: "var(--text-muted)" }}
                           >
-                            {formatTime(pos.opened_at)}
+                            {formatTime(pos.opened_at, true)}
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <button
@@ -621,7 +646,7 @@ export const TradesTab: React.FC = () => {
                             </span>
                           </div>
                           <div style={{ color: "var(--text-muted)" }}>
-                            {formatTime(trade.closed_at)}
+                            {formatTime(trade.closed_at, true)}
                           </div>
                         </div>
                       </div>
@@ -646,6 +671,12 @@ export const TradesTab: React.FC = () => {
                         Dir.
                       </th>
                       <th
+                        className="px-3 py-2.5 text-center font-medium uppercase tracking-wider"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Opened
+                      </th>
+                      <th
                         className="px-3 py-2.5 text-right font-medium uppercase tracking-wider"
                         style={{ color: "var(--text-muted)" }}
                       >
@@ -661,7 +692,7 @@ export const TradesTab: React.FC = () => {
                         className="px-3 py-2.5 text-right font-medium uppercase tracking-wider"
                         style={{ color: "var(--text-muted)" }}
                       >
-                        P&L (USD)
+                        P&L
                       </th>
                       <th
                         className="px-3 py-2.5 text-center font-medium uppercase tracking-wider"
@@ -708,6 +739,12 @@ export const TradesTab: React.FC = () => {
                             </span>
                           </td>
                           <td
+                            className="px-3 py-2.5 text-center"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {formatTime(trade.opened_at, true)}
+                          </td>
+                          <td
                             className="px-3 py-2.5 text-right"
                             style={{ color: "#94a3b8" }}
                           >
@@ -747,7 +784,7 @@ export const TradesTab: React.FC = () => {
                             className="px-3 py-2.5 text-center"
                             style={{ color: "var(--text-muted)" }}
                           >
-                            {formatTime(trade.closed_at)}
+                            {formatTime(trade.closed_at, true)}
                           </td>
                         </tr>
                       );

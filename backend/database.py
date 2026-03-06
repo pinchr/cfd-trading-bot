@@ -218,9 +218,10 @@ def save_candles(symbol: str, resolution: str, candles: list, source: str):
     }
     db = get_db()
     if db is not None:
-        db.candle_cache.replace_one(
+        # Use update_one with $set instead of replace_one to avoid _id conflict
+        db.candle_cache.update_one(
             {"symbol": symbol, "resolution": resolution},
-            {**doc, "_id": f"{symbol}_{resolution}"},
+            {"$set": {**doc}},
             upsert=True,
         )
     _candle_mem_cache[f"{symbol}_{resolution}"] = doc
@@ -259,9 +260,10 @@ def save_quote(symbol: str, quote: dict):
     }
     db = get_db()
     if db is not None:
-        db.quote_cache.replace_one(
+        # Use update_one with $set instead of replace_one to avoid _id conflict
+        db.quote_cache.update_one(
             {"symbol": symbol},
-            {**doc, "_id": f"quote_{symbol}"},
+            {"$set": {**doc}},
             upsert=True,
         )
     _quote_mem_cache[symbol] = doc

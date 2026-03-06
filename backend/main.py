@@ -84,7 +84,9 @@ from settings import (
     get_all_settings,
     get_current_broker_settings,
 )
-from strategies import get_strategy, list_strategies, mms_on_trade_result
+from timeframes import TimeFrame, DEFAULT_TIMEFRAME
+from strategy import load_strategies_from_file
+from strategies import list_strategies as old_list_strategies, mms_on_trade_result
 
 _timing_stats: dict[str, dict] = {}
 
@@ -1000,7 +1002,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
                 news_score=0.0,
                 components=[],
                 current_price=last_known_price,
-                time_horizon="1h",
+                time_horizon=timeframe,
                 entry_point=last_known_price,
                 take_profit=0.0,
                 stop_loss=0.0,
@@ -1009,9 +1011,30 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
 
         current_price = quote["price"]
 
-        # Use cached candles with 30s TTL
+        # Get timeframe from selected strategy (convert to db_resolution for compatibility)
+        selected_strategy = get_symbol_strategy(symbol)
+        
+        # Use StrategyManager from JSON (supports timeframe)
+        manager = get_strategy_manager()
+        strategy_obj = manager.strategies.get(selected_strategy)
+        if not strategy_obj:
+            strategy_obj = manager.strategies.get('xau_v3_exp')
+        
+        # Handle both string and TimeFrame enum
+        tf_value = strategy_obj.timeframe if strategy_obj and hasattr(strategy_obj, 'timeframe') else "5m"
+        if hasattr(tf_value, 'value'):
+            tf_value = tf_value.value
+        
+        # Convert to db_resolution (e.g., "5m" -> "5")
+        try:
+            tf_enum = TimeFrame(tf_value)
+            timeframe = tf_enum.db_resolution
+        except ValueError:
+            timeframe = "5"  # fallback
+        
+        # Use cached candles with strategy's timeframe
         async with _api_semaphore:
-            candles = await asyncio.wait_for(_get_cached_candles(symbol, "60", 100), timeout=10.0)
+            candles = await asyncio.wait_for(_get_cached_candles(symbol, timeframe, 100), timeout=10.0)
         if not candles or len(candles) < 20:
             return Signal(
                 symbol=symbol,
@@ -1023,7 +1046,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
                 news_score=0.0,
                 components=[],
                 current_price=current_price,
-                time_horizon="1h",
+                time_horizon=timeframe,
                 entry_point=current_price,
                 take_profit=0.0,
                 stop_loss=0.0,
@@ -1042,7 +1065,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
                 news_score=0.0,
                 components=[],
                 current_price=current_price,
-                time_horizon="1h",
+                time_horizon=timeframe,
                 entry_point=current_price,
                 take_profit=0.0,
                 stop_loss=0.0,
@@ -1117,26 +1140,10 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
             print(f"[VIX] Could not fetch VIX for {symbol}: {e}")
 
         # ── Volatility filter ──
+        # NOTE: Volatility check now handled by Strategy's filter config
+        # The strategy.json defines volatility filter per-strategy
         atr = indicators.get("atr_14", current_price * 0.01)
         atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
-        if atr_pct > 3.0:
-            # Return neutral but with price
-            return Signal(
-                symbol=symbol,
-                direction=SignalDirection.NEUTRAL,
-                score=0.0,
-                confidence=0.0,
-                technical_score=0.0,
-                price_action_score=0.0,
-                news_score=0.0,
-                components=[],
-                current_price=current_price,
-                time_horizon="1h",
-                entry_point=current_price,
-                take_profit=0.0,
-                stop_loss=0.0,
-                risk_reward_ratio=0.0,
-            )
 
         # ── News sentiment (disabled to speed up - optional feature) ──
         news_score = 0.0
@@ -1162,7 +1169,9 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
             candles, 
             current_price, 
             account.get("balance_usd", 3000),
-            requested_strategy=selected_strategy if selected_strategy.startswith("JSON:") else None
+            requested_strategy=selected_strategy if selected_strategy.startswith("JSON:") else None,
+            atr_percent=atr_pct,
+            vix_value=vix_data.get('value') if vix_data else None
         )
         
         if new_result:
@@ -1180,7 +1189,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
                 news_score=0.0,
                 components=new_result["components"],
                 current_price=current_price,
-                time_horizon="1h",
+                time_horizon=timeframe,
                 entry_point=current_price,
                 take_profit=new_result["take_profit"],
                 stop_loss=new_result["stop_loss"],
@@ -1217,7 +1226,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
             news_score=news_score,
             components=result["components"],
             current_price=current_price,
-            time_horizon="1h",
+            time_horizon=timeframe,
             entry_point=current_price,
             take_profit=result["take_profit"],
             stop_loss=result["stop_loss"],
@@ -1238,7 +1247,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
             news_score=0.0,
             components=[],
             current_price=0.0,
-            time_horizon="1h",
+            time_horizon=timeframe,
             entry_point=0.0,
             take_profit=0.0,
             stop_loss=0.0,
@@ -1306,7 +1315,7 @@ async def price_cache_loop():
 
 
 AUTO_TRADE_INTERVAL_SEC = 300  # Scan every 5 minutes
-AUTO_TRADE_ENABLED = True  # Master switch - can be toggled via API (disabled until async-signals ready)
+AUTO_TRADE_ENABLED = False  # Default: OFF until manually enabled  # Master switch - can be toggled via API (disabled until async-signals ready)
 _trading_task = None  # Reference to the background task
 
 
@@ -1788,6 +1797,15 @@ async def set_trading_mode(broker: str = "simulation", autoTrade: bool = False):
     db.set_setting("PREFERRED_BROKER", broker_type, "system")
     db.set_setting("AUTO_TRADE_ENABLED", 1 if autoTrade else 0, "system")
     log_event(f"[TRADING-MODE] Broker: {broker}, Auto-trade: {'ON' if autoTrade else 'OFF'}", "event")
+    return {"status": "ok", "broker": broker_type, "auto_trade": autoTrade}
+
+
+@app.post("/api/settings/dynamic-positions")
+async def set_dynamic_positions(enabled: bool = True):
+    """Enable/disable dynamic position sizing."""
+    db.set_setting("DYNAMIC_POSITIONS_ENABLED", 1 if enabled else 0, "system")
+    log_event(f"[DYNAMIC-POSITIONS] {'Enabled' if enabled else 'Disabled'}", "event")
+    return {"status": "ok", "enabled": enabled}
     return {
         "broker": broker,
         "autoTrade": autoTrade,
@@ -1797,7 +1815,7 @@ async def set_trading_mode(broker: str = "simulation", autoTrade: bool = False):
 from fastapi import Body, Query
 
 # All available indicators
-ALL_INDICATORS = ["RSI", "MACD", "BB", "SMA", "ADX", "STOCH", "MOMENTUM", "WILLIAMS_R"]
+ALL_INDICATORS = ["RSI", "MACD", "BB", "SMA", "ADX", "STOCH", "MOMENTUM", "WILLIAMS_R", "DIVERGENCE", "HTF_CANDLE"]
 
 
 @app.get("/api/settings/indicators/{symbol}")
@@ -2049,7 +2067,7 @@ async def backtest_from_json(
 ):
     """
     Run backtest using strategy config from JSON body.
-    Send JSON with strategy configuration matching memory/strategies.json format.
+    Send JSON with strategy configuration matching memoos.path.join(os.path.dirname(__file__), "..", "strategies.json") format.
     """
     import time
     start_time = time.time()
@@ -3193,6 +3211,7 @@ async def run_backtest(
     else:
         strategy_id = get_symbol_strategy(symbol_key)
 
+    from strategies import get_strategy
     strategy = get_strategy(strategy_id)
     instrument_info = INSTRUMENTS.get(symbol_key, {})
 
@@ -4296,8 +4315,8 @@ def get_strategy_manager(force_reload: bool = False):
             from strategy import load_strategies_from_file
             import os
             
-            # Try to load from workspace memory
-            json_path = os.path.expanduser("~/.openclaw/workspace/memory/strategies.json")
+            # Load from local strategies.json in project root
+            json_path = os.path.join(os.path.dirname(__file__), "..", "strategies.json")
             if os.path.exists(json_path):
                 _strategy_manager = load_strategies_from_file(json_path)
                 print(f"[STRATEGY] Loaded {len(_strategy_manager.strategies)} strategies from JSON")
@@ -4311,7 +4330,9 @@ def get_strategy_manager(force_reload: bool = False):
     return _strategy_manager
 
 
-def analyze_with_new_strategy(symbol: str, candles: list, current_price: float, balance: float, requested_strategy: str = None) -> dict:
+def analyze_with_new_strategy(symbol: str, candles: list, current_price: float, balance: float, 
+                            requested_strategy: str = None, atr_percent: float = None, 
+                            vix_value: float = None) -> dict:
     """
     Analyze using new JSON-based strategy module.
     Returns dict with direction, score, confidence, etc. or None if not available.
@@ -4322,6 +4343,8 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float, 
         current_price: Current price
         balance: Account balance
         requested_strategy: Specific JSON strategy ID to use (e.g., "JSON:btc_v2_core")
+        atr_percent: ATR percent for volatility filter
+        vix_value: Current VIX value for VIX filter
     """
     manager = get_strategy_manager()
     if not manager:
@@ -4335,7 +4358,10 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float, 
         json_id = requested_strategy.replace("JSON:", "")
         if json_id in manager.strategies:
             strategy = manager.strategies[json_id]
-            print(f"[STRATEGY] Using requested JSON strategy: {json_id}")
+            # Only print on first call (check if already printed this session)
+            if not getattr(analyze_with_new_strategy, '_logged', False):
+                print(f"[STRATEGY] Using requested JSON strategy: {json_id}")
+                analyze_with_new_strategy._logged = True
     else:
         # Default: use enabled strategy for this symbol
         for s in manager.get_enabled_strategies():
@@ -4385,6 +4411,16 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float, 
     if not has_data:
         return None
     
+    # Check filters (includes volatility and VIX from strategy config)
+    filters_passed, failed_filters = strategy.filters.check_all(
+        candle_data, symbol, 'long', 
+        atr_percent=atr_percent, 
+        vix_value=vix_value
+    )
+    if not filters_passed:
+        print(f"[FILTERS] {symbol}: Failed filters: {failed_filters}")
+        return None
+    
     # Get signal
     signal = strategy.score_engine.get_signal()
     score = strategy.score_engine.compute_score()
@@ -4406,9 +4442,9 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float, 
     
     return {
         'direction': 'long' if direction > 0 else 'short',
-        'score': abs(clamped_score),
+        'score': clamped_score,  # Keep sign - positive for buy, negative for sell
         'confidence': min(1.0, abs(clamped_score)),
-        'technical_score': abs(clamped_score),
+        'technical_score': clamped_score,
         'components': [{
             'type': 'technical',
             'name': f'JSON Strategy ({strategy.id})',

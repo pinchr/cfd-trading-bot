@@ -68,6 +68,14 @@
             "value": 50
           },
           "short_condition": null
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
         }
       },
       "risk": {
@@ -188,6 +196,14 @@
             "value": 50
           },
           "short_condition": null
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
         }
       },
       "risk": {
@@ -308,6 +324,14 @@
             "value": 50
           },
           "short_condition": null
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
         }
       },
       "risk": {
@@ -418,6 +442,14 @@
             "value": 50
           },
           "short_condition": null
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
         }
       },
       "risk": {
@@ -528,6 +560,14 @@
             "value": 50
           },
           "short_condition": null
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
         }
       },
       "risk": {
@@ -638,6 +678,14 @@
             "value": 50
           },
           "short_condition": null
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
         }
       },
       "risk": {

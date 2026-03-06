@@ -19,26 +19,26 @@ class TestAccountManagement:
     """Test account retrieval and management."""
 
     @pytest.mark.asyncio
-    async def test_get_account_info(self):
+    async def test_get_account_info(self, fresh_broker):
         """Test fetching account information."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         account = broker.get_account()
         
         assert account["balance_usd"] == 10000.0
 
     @pytest.mark.asyncio
-    async def test_account_mode_simulation(self):
+    async def test_account_mode_simulation(self, fresh_broker):
         """Test account in simulation mode."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         account = broker.get_account()
         assert "mode" in account
 
     @pytest.mark.asyncio
-    async def test_account_with_positions(self):
+    async def test_account_with_positions(self, fresh_broker):
         """Test account with open positions."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open a position
         await broker.open_position(
@@ -59,17 +59,17 @@ class TestAccountBalance:
     """Test account balance operations."""
 
     @pytest.mark.asyncio
-    async def test_initial_balance(self):
+    async def test_initial_balance(self, broker_with_balance):
         """Test account starts with correct balance."""
-        broker = SimulatedBroker(initial_balance=50000.0)
+        broker = broker_with_balance(50000)
         
         account = broker.get_account()
         assert account["balance_usd"] == 50000.0
 
     @pytest.mark.asyncio
-    async def test_balance_after_profit(self):
+    async def test_balance_after_profit(self, fresh_broker):
         """Test balance increases after profitable trade."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open and close with profit
         result = await broker.open_position(
@@ -86,9 +86,9 @@ class TestAccountBalance:
         assert account["balance_usd"] > 10000.0
 
     @pytest.mark.asyncio
-    async def test_balance_after_loss(self):
+    async def test_balance_after_loss(self, fresh_broker):
         """Test balance decreases after losing trade."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open and close with loss
         result = await broker.open_position(
@@ -109,7 +109,7 @@ class TestAccountEdgeCases:
     """Test edge cases in account management."""
 
     @pytest.mark.asyncio
-    async def test_zero_balance_account(self):
+    async def test_zero_balance_account(self, broker_with_balance):
         """Test account with zero initial balance."""
         broker = SimulatedBroker(initial_balance=0.0)
         
@@ -117,17 +117,17 @@ class TestAccountEdgeCases:
         assert account["balance_usd"] == 0.0
 
     @pytest.mark.asyncio
-    async def test_large_balance(self):
+    async def test_large_balance(self, broker_with_balance):
         """Test account with large balance."""
-        broker = SimulatedBroker(initial_balance=1000000.0)
+        broker = broker_with_balance(1000000)
         
         account = broker.get_account()
         assert account["balance_usd"] == 1000000.0
 
     @pytest.mark.asyncio
-    async def test_equity_calculation(self):
+    async def test_equity_calculation(self, fresh_broker):
         """Test equity is calculated correctly with open positions."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open a position
         await broker.open_position(
@@ -143,9 +143,9 @@ class TestAccountEdgeCases:
         assert "equity_usd" in account
 
     @pytest.mark.asyncio
-    async def test_margin_calculation(self):
+    async def test_margin_calculation(self, fresh_broker):
         """Test margin is calculated correctly."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open position requiring margin
         await broker.open_position(
@@ -165,18 +165,18 @@ class TestAccountMode:
     """Test account mode (simulation/live)."""
 
     @pytest.mark.asyncio
-    async def test_default_mode(self):
+    async def test_default_mode(self, fresh_broker):
         """Test default account mode."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         account = broker.get_account()
         # Default mode should be set
         assert "mode" in account
 
     @pytest.mark.asyncio
-    async def test_mode_persistence(self):
+    async def test_mode_persistence(self, fresh_broker):
         """Test mode is maintained across operations."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open and close position
         result = await broker.open_position(
@@ -197,9 +197,9 @@ class TestMaxDrawdown:
     """Test max drawdown tracking."""
 
     @pytest.mark.asyncio
-    async def test_drawdown_tracking(self):
+    async def test_drawdown_tracking(self, fresh_broker):
         """Test drawdown is tracked correctly."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open winning position
         result1 = await broker.open_position(

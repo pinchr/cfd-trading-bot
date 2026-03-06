@@ -17,7 +17,7 @@ This created unrealistic gaps between candles that would never exist in real mar
 - **Price relationship validation**: Ensure high/low values remain valid after continuity fix
 
 ### 2. Backend Port Change
-- **Moved backend from port 8000 → 8002** to resolve port conflicts
+- **Moved backend from port 8001 → 8002** to resolve port conflicts
 - **Updated all references**: Frontend proxy, monitor script, and API calls
 
 ### 3. Frontend Configuration

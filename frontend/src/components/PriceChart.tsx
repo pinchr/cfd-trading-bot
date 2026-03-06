@@ -56,13 +56,14 @@ export const PriceChart: React.FC<PriceChartProps> = ({
   const fetchChartData = async () => {
     try {
       setLoading(true);
-      // For now, use mock data. In future, add backend endpoint for historical data
-      // const response = await fetch(`/api/chart/${symbol}?period=1h`);
-      // if (response.ok) {
-      //   const data = await response.json();
-      //   setChartData(data);
-      // }
-      setChartData(mockChartData);
+      // Fetch real chart data from backend
+      const response = await fetch(`/api/chart/${symbol}?resolution=60&count=100`);
+      if (response.ok) {
+        const data = await response.json();
+        setChartData(data);
+      } else {
+        setChartData(mockChartData);
+      }
     } catch (error) {
       console.error("Failed to fetch chart data:", error);
       setChartData(mockChartData);

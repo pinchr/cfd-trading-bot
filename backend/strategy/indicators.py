@@ -3,6 +3,12 @@
 from collections import deque
 from typing import Optional, Deque
 import math
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from indicators import TechnicalIndicators
 
 
 class Indicator:
@@ -95,7 +101,7 @@ class MacdIndicator(Indicator):
     """MACD - Moving Average Convergence Divergence"""
     
     def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9, source: str = "close"):
-        super().__init__(signal, source)
+        super().__init__(slow, source)  # Use slow period for buffer size (needs slow * 2 values)
         self.fast = fast
         self.slow = slow
         self.signal = signal
@@ -219,6 +225,69 @@ class AdxIndicator(Indicator):
         return (0.0, 100.0)
 
 
+class DivergenceIndicator(Indicator):
+    """RSI Divergence indicator - detects bullish/bearish divergence between price and RSI"""
+    
+    def __init__(self, lookback: int = 20, source: str = "close"):
+        super().__init__(lookback, source)
+        self.lookback = lookback
+        self.candles_history = []
+    
+    def update(self, candle: dict) -> None:
+        self.candles_history.append(candle)
+        if len(self.candles_history) > self.lookback * 2:
+            self.candles_history.pop(0)
+        self.values.append(candle.get('close'))
+    
+    def value(self) -> Optional[float]:
+        if len(self.candles_history) < self.lookback:
+            return None
+        try:
+            result = TechnicalIndicators.divergence(self.candles_history, self.lookback)
+            if result and isinstance(result, dict):
+                return result.get('bias', 0.0)
+        except Exception:
+            pass
+        return 0.0
+    
+    def _get_range(self) -> tuple:
+        return (-1.0, 1.0)
+
+
+class HTFCandleIndicator(Indicator):
+    """HTF Candle Pattern indicator - detects candlestick patterns for trend reversals"""
+    
+    def __init__(self, min_strength: float = 0.3, source: str = "close"):
+        super().__init__(1, source)
+        self.min_strength = min_strength
+        self.candles_history = []
+    
+    def update(self, candle: dict) -> None:
+        self.candles_history.append(candle)
+        if len(self.candles_history) > 50:
+            self.candles_history.pop(0)
+        self.values.append(candle.get('close'))
+    
+    def value(self) -> Optional[float]:
+        if len(self.candles_history) < 10:
+            return None
+        try:
+            result = TechnicalIndicators.candlestick_patterns(self.candles_history)
+            if result and isinstance(result, dict):
+                patterns = result.get('patterns', [])
+                # Filter by min_strength
+                strong_patterns = [p for p in patterns if p.get('strength', 0) >= self.min_strength]
+                if strong_patterns:
+                    # Return bias of strongest pattern
+                    return strong_patterns[0].get('bias', 0.0)
+        except Exception:
+            pass
+        return 0.0
+    
+    def _get_range(self) -> tuple:
+        return (-1.0, 1.0)
+
+
 # Factory function to create indicators
 def create_indicator(name: str, **kwargs) -> Indicator:
     """Create indicator by name"""
@@ -227,6 +296,8 @@ def create_indicator(name: str, **kwargs) -> Indicator:
         'MACD': MacdIndicator,
         'MOMENTUM': MomentumIndicator,
         'ADX': AdxIndicator,
+        'DIVERGENCE': DivergenceIndicator,
+        'HTF_CANDLE': HTFCandleIndicator,
     }
     
     if name.upper() not in indicators:

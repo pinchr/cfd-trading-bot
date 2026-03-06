@@ -706,8 +706,30 @@ def run_single_backtest(
     original = INSTRUMENT_CONFIG.get(symbol, {}).copy()
     INSTRUMENT_CONFIG[symbol] = symbol_config
     
+    # Check if this is a JSON strategy config - use analyze_with_new_strategy()
+    config_name = config.get('name', '')
+    json_strategy_prefixes = ('btc_v2_', 'btc_v3_', 'xau_v2_', 'xau_v3_', 'xag_v3_', 'xau_scalp_', 'btc_scalp_', 'htf_divergence_')
+    use_unified = config_name.startswith(json_strategy_prefixes) or 'JSON:' in config.get('description', '')
+    
+    # Extract base strategy ID from config name (e.g., "btc_v3_exp_base" -> "btc_v3_exp")
+    if use_unified:
+        for prefix in json_strategy_prefixes:
+            if config_name.startswith(prefix):
+                # Find where suffix starts (_base, _dynamic_on, etc.)
+                strategy_id = config_name
+                for suffix in ('_base', '_dynamic_on', '_scalp', '_btc_focused', '_no_rsi'):
+                    if config_name.endswith(suffix):
+                        strategy_id = config_name[:-len(suffix)]
+                        break
+                break
+        else:
+            strategy_id = config_name
+    else:
+        strategy_id = None
+    
     try:
         # Run backtest (without HTF for speed, can add later)
+        # Use analyze_with_new_strategy() for JSON strategy configs
         result = run_backtest(
             candles,
             symbol=symbol,
@@ -716,6 +738,8 @@ def run_single_backtest(
             max_concurrent=1,
             verbose=verbose,
             htf_candles=None,  # Skip HTF for speed
+            use_unified_strategy=use_unified,
+            strategy_id=strategy_id,
         )
         
         # Add config info to result
