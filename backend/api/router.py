@@ -11,6 +11,7 @@ from .routes import (
     news,
     account as account_routes,
     strategies as strategies_routes,
+    strategies_db as strategies_db_routes,
     trades as trades_routes,
     market as market_routes,
     alerts as alerts_routes,
@@ -29,6 +30,7 @@ router.include_router(control.router)
 router.include_router(news.router)
 router.include_router(account_routes.router)
 router.include_router(strategies_routes.router)
+router.include_router(strategies_db_routes.router)
 router.include_router(trades_routes.router)
 router.include_router(market_routes.router)
 router.include_router(alerts_routes.router)
