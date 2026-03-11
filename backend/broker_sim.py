@@ -150,6 +150,35 @@ class AsyncSimulatedDataProvider:
                 candles = cached["candles"]
                 source = "cache"
 
+        # Add live candle with current price if we have data
+        if candles and len(candles) > 0:
+            try:
+                quote = await self.get_quote(symbol)
+                if quote and quote.get("price"):
+                    current_price = quote["price"]
+                    now = datetime.utcnow()
+                    # Create timestamp for current period
+                    resolution_minutes = int(resolution) if resolution != "D" else 1440
+                    minute_quant = (now.minute // resolution_minutes) * resolution_minutes
+                    period_start = now.replace(minute=minute_quant, second=0, microsecond=0)
+                    last_ts = candles[-1].get("timestamp", "")
+                    if last_ts:
+                        last_dt = datetime.strptime(last_ts.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+                        if period_start > last_dt:
+                            # Add live candle
+                            live_candle = {
+                                "timestamp": period_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "open": current_price,
+                                "high": current_price,
+                                "low": current_price,
+                                "close": current_price,
+                                "volume": 0
+                            }
+                            candles.append(live_candle)
+                            source = source + "_live" if source else "live"
+            except Exception as e:
+                print(f"[get_candles] Failed to add live candle: {e}")
+
         # Save to DB
         if candles and source not in ("db_history", "aggregated", "cache"):
             await asyncio.to_thread(db.store_candles, symbol, resolution, candles, source)
@@ -180,7 +209,7 @@ class AsyncSimulatedDataProvider:
 class AsyncSimulatedBroker(Broker):
     """Async paper-trading broker."""
 
-    def __init__(self, initial_balance: Optional[float] = None):
+    def __init__(self, initial_balance: Optional[float] = None, data_provider=None):
         self.account: Dict[str, Any] = db.load_account()
         # Allow overriding initial balance for testing
         if initial_balance is not None:
@@ -190,7 +219,8 @@ class AsyncSimulatedBroker(Broker):
             self.account["peak_equity_usd"] = initial_balance
         self.open_positions: List[Dict[str, Any]] = db.load_open_positions()
         self.closed_positions: List[Dict[str, Any]] = db.load_closed_positions()
-        self._data_provider = AsyncSimulatedDataProvider()
+        # Use external data_provider if provided, otherwise create mock
+        self._data_provider = data_provider if data_provider else AsyncSimulatedDataProvider()
         self._max_positions = 3  # Default max positions
         self._dynamic_exit_enabled = False
         self._signal_decay_threshold = 0.3  # Close if signal drops by 30%
@@ -424,28 +454,37 @@ class AsyncSimulatedBroker(Broker):
             return []
 
     async def _async_update_prices(self) -> List[Dict[str, Any]]:
-        """Async price update with auto-close - always gets fresh prices for real-time P&L."""
+        """Async price update with auto-close - uses quotes for real-time prices."""
+        print(f"[PRICE-UPDATE] Updating prices for {len(self.open_positions)} positions")
         auto_closed = []
         to_close = []
 
         for pos in self.open_positions:
             symbol = pos["symbol"]
 
-            # Always get fresh price from candles for real-time P&L updates
+            # Use quote API for real-time prices (not candles which may be stale)
             price = None
             try:
-                candles = await self._data_provider.get_candles(symbol, "60", 1)
-                if candles and len(candles) > 0:
-                    price = candles[-1]["close"]
-            except Exception:
-                pass
-
-            # Fallback to quote if candles unavailable
-            if price is None:
                 quote = await self._data_provider.get_quote(symbol)
-                if not quote:
-                    continue
-                price = quote["price"]
+                if quote and "price" in quote:
+                    price = quote["price"]
+                    print(f"[PRICE-UPDATE] {symbol}: got quote price = {price}")
+            except Exception as e:
+                print(f"[PRICE-UPDATE] Error getting quote for {symbol}: {e}")
+
+            # Fallback to candles if quote unavailable
+            if price is None:
+                try:
+                    candles = await self._data_provider.get_candles(symbol, "60", 1)
+                    if candles and len(candles) > 0:
+                        price = candles[-1]["close"]
+                except Exception as e:
+                    print(f"[PRICE-UPDATE] Error getting candles for {symbol}: {e}")
+
+            if price is None:
+                print(f"[PRICE-UPDATE] Could not get price for {symbol}")
+                continue
+
             pos_leverage = pos.get("leverage", 1)
             if pos["direction"] == "buy":
                 pnl = (price - pos["entry_price"]) * pos["size"] * pos_leverage

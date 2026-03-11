@@ -13,10 +13,11 @@ interface ChartData {
 
 interface ChartResponse {
   symbol: string;
-  data: ChartData[];
-  resolution: string;
-  count: number;
-  source: string;
+  candles?: ChartData[];
+  data?: ChartData[];
+  resolution?: string;
+  count?: number;
+  source?: string;
   fetched_at?: string;
   vix?: {
     value: number;
@@ -54,15 +55,53 @@ const resolutions = [
   { value: "D", label: "1D" },
 ];
 
+interface Position {
+  id: string;
+  symbol: string;
+  direction: "buy" | "sell";
+  entry_price: number;
+  current_price: number;
+  size: number;
+  leverage: number;
+  take_profit: number;
+  stop_loss: number;
+  opened_at: string;
+}
+
 export const ChartsTab: React.FC = () => {
   const [charts, setCharts] = useState<ChartResponse[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [openPositions, setOpenPositions] = useState<Position[]>([]);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedResolution, setSelectedResolution] = useState(() => {
     return localStorage.getItem("cfd_chartsResolution") || "60";
   });
   const [indicatorSettingsOpen, setIndicatorSettingsOpen] = useState<string | null>(null);
-  const [indicatorSettings, setIndicatorSettings] = useState<Record<string, { indicators: string[], strategy: string, available_indicators: string[] }>>({});
+  const [indicatorSettings, setIndicatorSettings] = useState<Record<string, { indicators: string[], strategy: string, available_indicators: string[] }>>(() => {
+    const saved = localStorage.getItem("cfd_indicatorSettings");
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
+
+  // Load indicator settings from backend on mount
+  useEffect(() => {
+    const symbols = ["XAU", "XAG", "US100", "BTC"];
+    Promise.all(symbols.map(s => 
+      fetch(`/cfd/api/settings/indicators/${s}`).then(r => r.json()).catch(() => null)
+    )).then(results => {
+      const loaded: Record<string, any> = {};
+      results.forEach((data, i) => {
+        if (data && !data.error && (data.indicators?.length > 0 || data.strategy)) {
+          loaded[symbols[i]] = data;
+        }
+      });
+      if (Object.keys(loaded).length > 0) {
+        setIndicatorSettings(prev => ({ ...prev, ...loaded }));
+        localStorage.setItem("cfd_indicatorSettings", JSON.stringify({ ...indicatorSettings, ...loaded }));
+      }
+    });
+  }, []);
 
   // Fetch indicator settings when modal opens
   useEffect(() => {
@@ -92,17 +131,28 @@ export const ChartsTab: React.FC = () => {
     localStorage.setItem("cfd_chartsResolution", selectedResolution);
   }, [selectedResolution]);
 
+  // Persist indicator settings to localStorage
+  useEffect(() => {
+    localStorage.setItem("cfd_indicatorSettings", JSON.stringify(indicatorSettings));
+  }, [indicatorSettings]);
+
   const fetchChartData = async () => {
     try {
       setLoading(true);
       const chartData: ChartResponse[] = [];
       for (const instrument of instruments) {
         const response = await fetch(
-          `${apiUrl(`chart/${instrument.symbol}`)}?resolution=${selectedResolution}&count=20`,
+          `${apiUrl(`chart/${instrument.symbol}`)}?resolution=${selectedResolution}&count=24`,
         );
         if (response.ok) {
           const data = await response.json();
-          if (data.data) chartData.push(data);
+          // Transform candles to data format for compatibility
+          if (data.candles) {
+            chartData.push({
+              ...data,
+              data: data.candles
+            });
+          }
         }
       }
       setCharts(chartData);
@@ -134,6 +184,7 @@ export const ChartsTab: React.FC = () => {
           openData,
         );
         if (openData.positions) {
+          setOpenPositions(openData.positions);
           allTrades.push(
             ...openData.positions.map((p: any) => ({
               ...p,
@@ -173,7 +224,40 @@ export const ChartsTab: React.FC = () => {
       fetchChartData();
       fetchTrades();
     }, 30000);
-    return () => clearInterval(interval);
+
+    // Listen for TP/SL line drag events from chart
+    const handleLineAdjust = async (e: CustomEvent) => {
+      const { positionId, type, value } = e.detail;
+      console.log("[ChartsTab] Line adjust:", positionId, type, value);
+      
+      // Update local state immediately for smooth UI
+      setOpenPositions(prev => prev.map(p => 
+        p.id === positionId 
+          ? { ...p, [type === 'tp' ? 'take_profit' : 'stop_loss']: value }
+          : p
+      ));
+
+      // Also update API in background
+      try {
+        const params = new URLSearchParams({
+          [type === 'tp' ? 'take_profit' : 'stop_loss']: value.toString()
+        });
+        await fetch(apiUrl(`trades/update/${positionId}?${params.toString()}`), {
+          method: "POST",
+        });
+        // Refresh positions after update
+        fetchTrades();
+      } catch (error) {
+        console.error("Failed to update position:", error);
+      }
+    };
+
+    window.addEventListener("adjustPositionLine", handleLineAdjust as EventListener);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("adjustPositionLine", handleLineAdjust as EventListener);
+    };
   }, [selectedResolution]);
 
   if (loading && charts.length === 0) {
@@ -247,12 +331,20 @@ export const ChartsTab: React.FC = () => {
                     className="w-1.5 h-1.5 rounded-full"
                     style={{ backgroundColor: instrument.color }}
                   />
-                  <span
-                    className="text-[11px] font-bold"
-                    style={{ color: "var(--text-primary)" }}
+                  <button
+                    className="text-[11px] font-bold cursor-pointer hover:underline"
+                    style={{ color: selectedSymbol === instrument.symbol ? "var(--accent)" : "var(--text-primary)" }}
+                    onClick={() => setSelectedSymbol(selectedSymbol === instrument.symbol ? null : instrument.symbol)}
+                    title="Click to show SL/TP lines"
                   >
                     {instrument.symbol}
-                  </span>
+                  </button>
+                  {/* Show indicator if position is selected */}
+                  {selectedSymbol === instrument.symbol && openPositions.some(p => p.symbol === instrument.symbol) && (
+                    <span className="text-[9px] px-1 py-0.5 rounded" style={{ backgroundColor: "var(--accent)", color: "white" }}>
+                      SL/TP
+                    </span>
+                  )}
                   <span className="text-[10px]" style={{ color: "#4a5568" }}>
                     {instrument.name}
                   </span>
@@ -336,14 +428,15 @@ export const ChartsTab: React.FC = () => {
                   })()}
               </div>
               <div className="p-1 md:p-2">
-                {chartData && chartData.data.length > 0 ? (
+                {chartData && (chartData.data || chartData.candles) && (chartData.data?.length ?? chartData.candles?.length ?? 0) > 0 ? (
                   <CandlestickChart
                     symbol={instrument.symbol}
-                    data={chartData.data}
+                    data={chartData.candles || chartData.data || []}
                     height={220}
                     showVolume={true}
                     showRSI={true}
                     trades={trades}
+                    selectedPosition={selectedSymbol === instrument.symbol ? openPositions.find(p => p.symbol === instrument.symbol) || null : null}
                   />
                 ) : (
                   <div

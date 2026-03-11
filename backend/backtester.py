@@ -9,23 +9,32 @@ Usage:
     python backtester.py --symbol XAU --days 365  # Fetch Yahoo Finance data
     python backtester.py --csv data/gold_2024.csv --symbol XAU
     python backtester.py --all --days 180         # All instruments
-    python backtester.py --sample                 # Use synthetic data (testing only)
 
 Data sources (in priority order):
     1. --csv <file>          CSV file (Yahoo Finance download format)
     2. Yahoo Finance API     Automatic when no --csv given
     3. Alpha Vantage API     Fallback if Yahoo fails
-    4. --sample              Synthetic data (only for unit tests, not real analysis)
 """
 
 import argparse
 import json
-import sys
+import logging
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from indicators import TechnicalIndicators
+
+# Try to import analyze_with_new_strategy for unified signal generation
+try:
+    from services.strategy_manager import analyze_with_new_strategy as analyze_strategy
+    from services.strategy_manager import get_strategy_manager
+    HAS_UNIFIED_ANALYSIS = True
+except ImportError:
+    HAS_UNIFIED_ANALYSIS = False
+    analyze_strategy = None
+    get_strategy_manager = None
 
 # ── Signal scoring — extracted from main.py to run standalone ──
 
@@ -243,6 +252,8 @@ def run_backtest(
     max_concurrent: int = 1,
     verbose: bool = False,
     htf_candles: Optional[List[Dict]] = None,
+    use_unified_strategy: bool = True,
+    strategy_id: Optional[str] = None,
 ) -> BacktestResult:
     """
     Run backtest over historical candle data.
@@ -251,7 +262,23 @@ def run_backtest(
     generating signals, and simulating trades with TP/SL exits.
 
     htf_candles: optional higher-timeframe (e.g. daily) candles for multi-TF filter.
+    use_unified_strategy: if True, use analyze_with_new_strategy() for signal generation
+    strategy_id: specific JSON strategy to use (e.g., "btc_v3_exp")
     """
+    # Track if we're using unified strategy
+    using_unified = use_unified_strategy and HAS_UNIFIED_ANALYSIS and analyze_strategy is not None
+    
+    # Force reload strategy manager to ensure clean state (indicators reset)
+    # This ensures deterministic results between backtest runs
+    if using_unified and get_strategy_manager:
+        try:
+            get_strategy_manager(force_reload=True)
+        except Exception:
+            pass  # Ignore errors - may not have the function
+    
+    if using_unified:
+        print(f"[BACKTEST] Using unified strategy: {strategy_id or 'default'}")
+    
     if len(candles) < LOOKBACK + 10:
         raise ValueError(f"Need at least {LOOKBACK + 10} candles, got {len(candles)}")
 
@@ -380,62 +407,170 @@ def run_backtest(
         if len(open_trades) >= max_concurrent:
             continue
 
-        # Compute indicators on trailing window
-        ind = TechnicalIndicators.calculate_all(window, period=14)
-        if not ind:
-            continue
-        ind["_closes"] = [c["close"] for c in window]
+        # Use unified strategy if requested
+        using_unified_result = False  # Track if we actually got a unified result
+        strategy_exists_for_symbol = False  # Track if any strategy exists for this symbol
+        if using_unified:
+            # Try to get signal from unified strategy
+            try:
+                # First, check if any strategy exists for this symbol (before calling analyze)
+                # This helps us distinguish between "no strategy" vs "filters failed"
+                if analyze_strategy and get_strategy_manager:
+                    try:
+                        mgr = get_strategy_manager()
+                        if mgr:
+                            # Check both enabled and disabled strategies
+                            for s in mgr.strategies.values():
+                                if s.symbol.upper() == symbol.upper():
+                                    strategy_exists_for_symbol = True
+                                    break
+                            # Also check enabled strategies
+                            if not strategy_exists_for_symbol:
+                                for s in mgr.get_enabled_strategies():
+                                    if s.symbol.upper() == symbol.upper():
+                                        strategy_exists_for_symbol = True
+                                        break
+                    except Exception:
+                        pass
+                
+                # Also compute indicators for filters
+                ind = TechnicalIndicators.calculate_all(window, period=14)
+                if not ind:
+                    continue
+                ind["_closes"] = [c["close"] for c in window]
+                
+                # Volatility filter (same as production)
+                atr = ind.get("atr_14", current_price * 0.01)
+                atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
+                if atr_pct > 3.0:
+                    continue
+                
+                # Get signal from unified strategy
+                result = analyze_strategy(
+                    symbol=symbol,
+                    candles=window,  # trailing window
+                    current_price=current_price,
+                    balance=initial_balance,
+                    requested_strategy=strategy_id
+                )
+                
+                if result and result.get('direction'):
+                    # Convert to format expected by backtester
+                    direction = result['direction']
+                    score = result.get('score', 0)
+                    direction_str = 'BUY' if direction == 'long' else 'SELL'
+                    component_scores = [score]  # Simplified
+                    total_signals += 1
+                    using_unified_result = True  # Mark that unified strategy gave us a valid signal
+                elif result is None:
+                    # Strategy returned None - could be no strategy OR filters failed
+                    # Only fall back if NO strategy exists for this symbol
+                    # If strategy exists but returned None, it means filters failed - SKIP, don't fall back
+                    if not strategy_exists_for_symbol:
+                        # No strategy at all for this symbol - fall back to traditional scoring
+                        if verbose:
+                            print(f"[BACKTEST] No strategy found for {symbol}, falling back to traditional scoring")
+                        ind = TechnicalIndicators.calculate_all(window, period=14)
+                        if not ind:
+                            continue
+                        ind["_closes"] = [c["close"] for c in window]
+                        score, component_scores = calculate_signal_score(ind)
+                        total_signals += 1
+                        using_unified_result = False  # Fell back to traditional
+                    else:
+                        # Strategy exists but filters failed or no signal - skip this bar
+                        # Do NOT fall back - use the strategy's filtering
+                        if verbose:
+                            print(f"[BACKTEST] Strategy exists for {symbol} but no signal (filters/data), skipping bar")
+                        neutral_skipped += 1
+                        continue
+                else:
+                    # Result returned but filters failed (no direction) - skip this bar
+                    # Do NOT fall back - use the strategy's filtering
+                    if verbose:
+                        print(f"[BACKTEST] Filters failed for {symbol}, skipping bar")
+                    neutral_skipped += 1
+                    continue
+            except Exception as e:
+                # Fall back to traditional scoring but keep unified enabled
+                # (exception may be transient)
+                if verbose:
+                    print(f"[BACKTEST] Unified strategy error: {e}, falling back")
+                # Don't disable unified - it may work on next bar
+                ind = TechnicalIndicators.calculate_all(window, period=14)
+                if not ind:
+                    continue
+                ind["_closes"] = [c["close"] for c in window]
+                score, component_scores = calculate_signal_score(ind)
+                total_signals += 1
+                using_unified_result = False  # Fell back to traditional
+        else:
+            # Original logic: compute indicators and calculate score
+            # Compute indicators on trailing window
+            ind = TechnicalIndicators.calculate_all(window, period=14)
+            if not ind:
+                continue
+            ind["_closes"] = [c["close"] for c in window]
 
-        # Volatility filter (same as production)
-        atr = ind.get("atr_14", current_price * 0.01)
-        atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
-        if atr_pct > 3.0:
-            continue
+            # Volatility filter (same as production)
+            atr = ind.get("atr_14", current_price * 0.01)
+            atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
+            if atr_pct > 3.0:
+                continue
 
-        score, component_scores = calculate_signal_score(ind)
-        total_signals += 1
+            score, component_scores = calculate_signal_score(ind)
+            total_signals += 1
 
         # Blend in higher-TF bias (if available)
-        if abs(htf_bias) > 0.1:
+        if not using_unified and abs(htf_bias) > 0.1:
             score = score * 0.85 + htf_bias * 0.15
             score = max(-1, min(1, score))
 
-        # Multi-TF alignment filter: halve score if opposing daily trend
-        if abs(htf_bias) > 0.3:
+        # Multi-TF alignment filter: halve score if opposing daily trend (not for unified - it has its own filters)
+        if not using_unified and abs(htf_bias) > 0.3:
             if (score > 0) != (htf_bias > 0):
                 score *= 0.5
 
-        # Per-instrument threshold
-        inst_config = INSTRUMENT_CONFIG.get(symbol, {})
-        min_score = inst_config.get("min_score", 0.15)
-        asset_class = inst_config.get("asset_class", "equity")
+        # Per-instrument threshold - use from unified result or config
+        # Only use min_score=0.0 if we actually got a unified strategy result
+        # If we fell back to traditional scoring, use the config threshold
+        if using_unified and using_unified_result:
+            # Unified strategy already applies its own thresholds
+            min_score = 0.0
+        else:
+            # Fell back to traditional scoring - use config thresholds
+            inst_config = INSTRUMENT_CONFIG.get(symbol, {})
+            min_score = inst_config.get("min_score", 0.15)
 
+        inst_config = INSTRUMENT_CONFIG.get(symbol, {})  # Always need this for filters
         direction = get_direction(score, min_score=min_score)
 
         if direction == "NEUTRAL":
             neutral_skipped += 1
             continue
 
-        # Minimum indicator agreement filter (per-instrument)
-        bullish_c = sum(1 for s in component_scores if s > 0.1)
-        bearish_c = sum(1 for s in component_scores if s < -0.1)
-        min_agreement = inst_config.get("min_agreement", 2)
-        if max(bullish_c, bearish_c) < min_agreement:
-            neutral_skipped += 1
-            continue
+        # Minimum indicator agreement filter (per-instrument) - skip for unified
+        if not using_unified:
+            bullish_c = sum(1 for s in component_scores if s > 0.1)
+            bearish_c = sum(1 for s in component_scores if s < -0.1)
+            min_agreement = inst_config.get("min_agreement", 2)
+            if max(bullish_c, bearish_c) < min_agreement:
+                neutral_skipped += 1
+                continue
 
-        # Trend-alignment filter for commodities
-        # Only trade with the SMA50 trend direction
-        sma_50 = ind.get("sma_50")
-        if asset_class == "commodity" and sma_50:
-            price_above_sma50 = current_price > sma_50
-            is_buy = direction in ("BUY", "STRONG_BUY")
-            if is_buy and not price_above_sma50:
-                neutral_skipped += 1
-                continue
-            if not is_buy and price_above_sma50:
-                neutral_skipped += 1
-                continue
+        # Trend-alignment filter for commodities (skip for unified - has its own filters)
+        if not using_unified:
+            sma_50 = ind.get("sma_50")
+            asset_class = inst_config.get("asset_class", "crypto")
+            if asset_class == "commodity" and sma_50:
+                price_above_sma50 = current_price > sma_50
+                is_buy = direction in ("BUY", "STRONG_BUY")
+                if is_buy and not price_above_sma50:
+                    neutral_skipped += 1
+                    continue
+                if not is_buy and price_above_sma50:
+                    neutral_skipped += 1
+                    continue
 
         # Determine TP/SL using ATR
         # With trailing stop: wider initial SL (3×ATR emergency) since trailing will tighten
@@ -671,16 +806,15 @@ def main():
     parser.add_argument("--days", type=int, default=365, help="Days of history (default: 365)")
     parser.add_argument("--resolution", default="D", help="Candle interval: D, 60, 30, 15, 5 (default: D)")
     parser.add_argument("--csv", type=str, help="Path to CSV file with OHLCV data")
-    parser.add_argument("--sample", action="store_true", help="Use built-in sample data (no API needed)")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show individual trade entries")
+    parser.add_argument("--sample", action="store_true", help="Use synthetic/sample data if no real data available")
     args = parser.parse_args()
 
     from historical_data import (
         fetch_alpha_vantage_historical,
         fetch_from_db_cache,
         fetch_yahoo_historical,
-        generate_sample_data,
         load_csv_candles,
     )
 
@@ -710,7 +844,7 @@ def main():
             "30": "30m",
             "15": "15m",
             "5": "5m",
-            "1": "2m",
+            "1": "2m",  # TODO: we can have such thing how is it suppose to help 
         }
         yahoo_interval = yahoo_interval_map.get(args.resolution, "1d")
 
@@ -744,18 +878,16 @@ def main():
                         candles = None
 
             if candles is None:
+                logging.error(f"No cached data for {symbol} at {args.resolution} resolution")
                 print(f"  Fetching {args.days} days ({args.resolution} candles) from Yahoo Finance...")
                 candles = fetch_yahoo_historical(symbol, period_days=args.days, interval=yahoo_interval)
                 if candles:
                     print(f"  Fetched {len(candles)} candles from Yahoo Finance")
-                    # Store to DB history for future use
-                    _db.store_candles(symbol, args.resolution, candles, "yahoo")
                 else:
                     print(f"  Yahoo fetch failed, trying Alpha Vantage...")
                     candles = fetch_alpha_vantage_historical(symbol, count=min(args.days, 200))
                     if candles:
                         print(f"  Fetched {len(candles)} candles from Alpha Vantage")
-                        _db.store_candles(symbol, args.resolution, candles, "alpha_vantage")
                     else:
                         print(f"  Alpha Vantage failed, trying DB cache...")
                         candles = fetch_from_db_cache(symbol, args.resolution)
@@ -764,16 +896,10 @@ def main():
                             print(f"  Use --csv <file> to provide data, or --sample for synthetic test data.")
                             continue
 
+        # Try sample data ONLY if explicitly requested AND no real data available
         if candles is None and args.sample:
-            base_prices = {"XAU": 2000.0, "XAG": 23.0, "US100": 17500.0, "BTC": 95000.0}
-            sample_days = max(args.days, 300) if args.resolution == "D" else max(args.days, 30)
-            candles = generate_sample_data(
-                symbol,
-                days=sample_days,
-                base_price=base_prices.get(symbol, 1000),
-                resolution=args.resolution,
-            )
-            print(f"  WARNING: Using synthetic sample data ({len(candles)} candles) — not real market data")
+            print(f"  ERROR: No real data available for {symbol}. Use --csv <file> to provide data.")
+            continue
 
         # Generate/fetch daily candles for multi-timeframe filter
         htf_candles = None

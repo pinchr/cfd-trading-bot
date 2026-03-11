@@ -3,6 +3,44 @@
 from collections import deque
 from typing import Optional, Deque
 import math
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from indicators import TechnicalIndicators
+
+# FIXED RANGES - for stable normalization (per specialist recommendation)
+INDICATOR_RANGES = {
+    # Bounded oscillators (naturalnie stałe)
+    'RSI': (0, 100),
+    'STOCH': (0, 100),
+    'STOCH_RSI': (0, 100),
+    'WILLIAMS_R': (-100, 0),
+    'CCI': (-200, 200),
+    'ADX': (0, 100),
+    'MFI': (0, 100),
+    
+    # Unbounded - praktyczne limity
+    'MACD': (-20, 20),
+    'MACD_LINE': (-15, 15),
+    'MACD_SIGNAL': (-15, 15),
+    'MOMENTUM': (-10, 10),
+    'ROC': (-20, 20),
+    
+    # Volatility
+    'ATR': (0, 100),
+    'BOLLINGER_WIDTH': (0, 50),
+    'CHOP': (0, 100),
+    
+    # Trend
+    'EMA_DIFF': (-10, 10),
+    'RSI': (0, 100),           # Standard RSI 0-100
+    'MACD': (-20, 20),          # MACD histogram -20 to +20
+    'MOMENTUM': (-10, 10),     # Momentum -10% to +10%
+    'ADX': (0, 100),            # Standard ADX 0-100
+    'STOCH': (0, 100),         # Stochastic 0-100
+}
 
 
 class Indicator:
@@ -22,25 +60,38 @@ class Indicator:
         raise NotImplementedError
     
     def normalized_value(self, range_min: float = -1.0, range_max: float = 1.0) -> float:
-        """Normalize indicator value to specified range"""
+        """Normalize indicator value to specified range using FIXED RANGES"""
         val = self.value()
         if val is None:
             return 0.0
         
-        min_val, max_val = self._get_range()
+        # Use FIXED RANGES from INDICATOR_RANGES (per specialist recommendation)
+        # Fall back to dynamic range only if not in fixed ranges
+        indicator_name = self.__class__.__name__.replace('Indicator', '').upper()
+        if indicator_name in INDICATOR_RANGES:
+            min_val, max_val = INDICATOR_RANGES[indicator_name]
+        else:
+            min_val, max_val = self._get_range()
         
-        # Normalize: map from [min_val, max_val] to [range_min, range_max]
-        # Use midpoint as zero point
+        # Handle case where min == max (avoid division by zero)
+        if max_val == min_val:
+            return 0.0
+        
+        # Normalize: map from [min_val, max_val] to [-1, 1] 
+        # Use midpoint as zero point (so 0 = neutral)
         mid = (min_val + max_val) / 2
         half_range = (max_val - min_val) / 2
         
-        # Normalize to -1 to 1 first
+        # Normalize to -1 to 1
         if half_range > 0:
             normalized = (val - mid) / half_range
         else:
             normalized = 0.0
         
-        # Scale to desired range
+        # Clamp to [-1, 1] to avoid extreme values
+        normalized = max(-1.0, min(1.0, normalized))
+        
+        # Scale to desired range (e.g., [-1, 1])
         return normalized * ((range_max - range_min) / 2)
     
     def _get_range(self) -> tuple:
@@ -95,7 +146,7 @@ class MacdIndicator(Indicator):
     """MACD - Moving Average Convergence Divergence"""
     
     def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9, source: str = "close"):
-        super().__init__(signal, source)
+        super().__init__(slow, source)  # Use slow period for buffer size (needs slow * 2 values)
         self.fast = fast
         self.slow = slow
         self.signal = signal
@@ -134,7 +185,7 @@ class MacdIndicator(Indicator):
         return None
     
     def _get_range(self) -> tuple:
-        return (-2.0, 2.0)
+        return (-10.0, 10.0)
 
 
 class MomentumIndicator(Indicator):
@@ -158,7 +209,7 @@ class MomentumIndicator(Indicator):
         return ((current - past) / past) * 100
     
     def _get_range(self) -> tuple:
-        return (-5.0, 5.0)
+        return (-15.0, 15.0)
 
 
 class AdxIndicator(Indicator):
@@ -219,6 +270,69 @@ class AdxIndicator(Indicator):
         return (0.0, 100.0)
 
 
+class DivergenceIndicator(Indicator):
+    """RSI Divergence indicator - detects bullish/bearish divergence between price and RSI"""
+    
+    def __init__(self, lookback: int = 20, source: str = "close"):
+        super().__init__(lookback, source)
+        self.lookback = lookback
+        self.candles_history = []
+    
+    def update(self, candle: dict) -> None:
+        self.candles_history.append(candle)
+        if len(self.candles_history) > self.lookback * 2:
+            self.candles_history.pop(0)
+        self.values.append(candle.get('close'))
+    
+    def value(self) -> Optional[float]:
+        if len(self.candles_history) < self.lookback:
+            return None
+        try:
+            result = TechnicalIndicators.divergence(self.candles_history, self.lookback)
+            if result and isinstance(result, dict):
+                return result.get('bias', 0.0)
+        except Exception:
+            pass
+        return 0.0
+    
+    def _get_range(self) -> tuple:
+        return (-1.0, 1.0)
+
+
+class HTFCandleIndicator(Indicator):
+    """HTF Candle Pattern indicator - detects candlestick patterns for trend reversals"""
+    
+    def __init__(self, min_strength: float = 0.3, source: str = "close"):
+        super().__init__(1, source)
+        self.min_strength = min_strength
+        self.candles_history = []
+    
+    def update(self, candle: dict) -> None:
+        self.candles_history.append(candle)
+        if len(self.candles_history) > 50:
+            self.candles_history.pop(0)
+        self.values.append(candle.get('close'))
+    
+    def value(self) -> Optional[float]:
+        if len(self.candles_history) < 10:
+            return None
+        try:
+            result = TechnicalIndicators.candlestick_patterns(self.candles_history)
+            if result and isinstance(result, dict):
+                patterns = result.get('patterns', [])
+                # Filter by min_strength
+                strong_patterns = [p for p in patterns if p.get('strength', 0) >= self.min_strength]
+                if strong_patterns:
+                    # Return bias of strongest pattern
+                    return strong_patterns[0].get('bias', 0.0)
+        except Exception:
+            pass
+        return 0.0
+    
+    def _get_range(self) -> tuple:
+        return (-1.0, 1.0)
+
+
 # Factory function to create indicators
 def create_indicator(name: str, **kwargs) -> Indicator:
     """Create indicator by name"""
@@ -227,6 +341,8 @@ def create_indicator(name: str, **kwargs) -> Indicator:
         'MACD': MacdIndicator,
         'MOMENTUM': MomentumIndicator,
         'ADX': AdxIndicator,
+        'DIVERGENCE': DivergenceIndicator,
+        'HTF_CANDLE': HTFCandleIndicator,
     }
     
     if name.upper() not in indicators:

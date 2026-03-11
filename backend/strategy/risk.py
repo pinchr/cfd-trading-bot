@@ -1,5 +1,6 @@
 """Risk management module"""
 
+import math
 from typing import Optional
 
 
@@ -76,6 +77,3 @@ class RiskManager:
     def calculate_risk_amount(self, balance: float) -> float:
         """Calculate risk amount for a single trade"""
         return balance * (self.risk_per_trade_pct / 100.0)
-
-
-import math

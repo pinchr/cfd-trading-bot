@@ -11,7 +11,7 @@ Real-time CFD trading bot for Gold, Silver, and Nasdaq-100 with signal generatio
 
 ### ✅ Implemented
 - **Backend:**
-  - FastAPI server (port 8000)
+  - FastAPI server (port 8001)
   - Realistic price feeder matching XTB CFD prices
   - Technical indicators (RSI, MACD, ATR, Momentum)
   - Signal scoring system (technical + price action)

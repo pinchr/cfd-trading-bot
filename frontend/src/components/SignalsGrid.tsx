@@ -403,16 +403,20 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
   const executeTrade = async () => {
     setTradeModal((prev) => ({ ...prev, loading: true }));
     try {
-      const params = new URLSearchParams({
-        symbol: tradeModal.symbol,
-        direction: tradeModal.direction,
-        size: tradeModal.selectedSize.toString(),
-        take_profit: tradeModal.takeProfit.toString(),
-        stop_loss: tradeModal.stopLoss.toString(),
-      });
       const response = await fetch(
-        `${apiUrl("trade/open")}?${params.toString()}`,
-        { method: "POST" },
+        apiUrl("trade/open"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol: tradeModal.symbol,
+            direction: tradeModal.direction,
+            size: tradeModal.selectedSize,
+            entry_price: tradeModal.entryPrice || 0,
+            take_profit: tradeModal.takeProfit || 0,
+            stop_loss: tradeModal.stopLoss || 0,
+          }),
+        },
       );
       const data = await response.json();
 

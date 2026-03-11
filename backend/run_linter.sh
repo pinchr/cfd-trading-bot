@@ -57,7 +57,7 @@ run_check() {
     fi
 }
 
-cd "$(dirname "$0")/backend"
+# cd "$(dirname "$0")/backend"
 
 # === FAST CHECKS (syntax only) ===
 echo -e "${BLUE}=== Fast Checks (Syntax & Format) ===${NC}"
@@ -71,7 +71,7 @@ if [ "$MODE" = "full" ]; then
     echo -e "${BLUE}=== Full Checks ===${NC}"
     
     run_check "Flake8 full" "python -m flake8 --exclude='$EXCLUDE' --max-line-length=120 --extend-ignore=E203,W503,Q003 ."
-    run_check "Mypy types" "python -m mypy --ignore-missing-imports --exclude='$EXCLUDE' . || true"
+    run_check "Mypy types" "python -m mypy . --exclude='$EXCLUDE' . || true"
     run_check "Pyright" "python -m pyright . || true"
 fi
 

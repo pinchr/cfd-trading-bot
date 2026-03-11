@@ -140,7 +140,27 @@ export const OpenPositionsSummary: React.FC<OpenPositionsSummaryProps> = ({
       const res = await fetch(apiUrl("trades/open") + "?t=" + Date.now());
       if (res.ok) {
         const data = await res.json();
-        setPositions(data.positions || []);
+        const newPositions = data.positions || [];
+        
+        // Only update positions if not editing - otherwise we'd overwrite edit state
+        if (!editingPosition) {
+          setPositions(newPositions);
+        } else {
+          // Still update but preserve editing state
+          setPositions(prev => {
+            // If editing, only update positions that are NOT being edited
+            return prev.map(p => {
+              if (p.id === editingPosition) {
+                // Keep the old position data to avoid overwriting edit state
+                const oldPos = prev.find(op => op.id === p.id);
+                return oldPos || p;
+              }
+              const newPos = newPositions.find(np => np.id === p.id);
+              return newPos || p;
+            });
+          });
+        }
+        
         // Always update internal timestamp
         setInternalLastFetched(Date.now());
       }
@@ -171,7 +191,7 @@ export const OpenPositionsSummary: React.FC<OpenPositionsSummaryProps> = ({
     // Optimistic update - remove immediately from UI
     setPositions(prev => prev.filter(p => p.id !== id));
     try {
-      const res = await fetch(apiUrl(`trade/close/${id}`), { method: "POST", cache: "no-store" });
+      const res = await fetch(apiUrl(`trade/${id}/close`), { method: "POST", cache: "no-store" });
       const data = await res.json();
       
       if (res.ok) {
@@ -586,20 +606,26 @@ export const OpenPositionsSummary: React.FC<OpenPositionsSummaryProps> = ({
                         −
                       </button>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         value={editSl.toFixed(2)}
-                        onChange={(e) =>
-                          setEditSl(parseFloat(e.target.value) || 0)
-                        }
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!isNaN(val)) {
+                            setEditSl(val);
+                          }
+                        }}
                         className="w-20 px-2 py-0.5 text-[10px] text-center rounded"
                         style={{
                           backgroundColor: "var(--bg-tertiary)",
-                          // border: "1px solid var(--danger)33",
                           color: "var(--danger)",
                         }}
                       />
                       <button
-                        onClick={() => setEditSl((prev) => prev + config.step)}
+                        onClick={() => {
+                          console.log("SL + clicked, current:", editSl, "step:", config.step);
+                          setEditSl((prev) => prev + config.step);
+                        }}
                         className="px-2 py-0.5 text-[10px] rounded"
                         style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-muted)" }}
                       >
@@ -622,11 +648,15 @@ export const OpenPositionsSummary: React.FC<OpenPositionsSummaryProps> = ({
                         −
                       </button>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         value={editTp.toFixed(2)}
-                        onChange={(e) =>
-                          setEditTp(parseFloat(e.target.value) || 0)
-                        }
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!isNaN(val)) {
+                            setEditTp(val);
+                          }
+                        }}
                         className="w-20 px-2 py-0.5 text-[10px] text-center rounded"
                         style={{
                           backgroundColor: "var(--bg-tertiary)",

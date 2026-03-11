@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiUrl } from "../api";
-import { TradingToggle, BrokerToggle } from "./GlassToggle";
+import { TradingToggle, BrokerToggle, DynamicPositionsToggle } from "./GlassToggle";
 
 // Trading Sessions - major market hours in UTC
 interface TradingSession {
@@ -108,6 +108,10 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulation", autoTrade = false, onBrokerChange, onAutoTradeChange }) => {
   const [lastScan, setLastScan] = useState("--");
   const [isScanning, setIsScanning] = useState(false);
+  const [dynamicPositions, setDynamicPositions] = useState(() => {
+    const saved = localStorage.getItem("dynamicPositions");
+    return saved ? JSON.parse(saved) : false;
+  });
 
   const handleBrokerChange = async (newBroker: "simulation" | "ibkr") => {
     onBrokerChange?.(newBroker);
@@ -127,13 +131,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
     }
   };
 
-  const balance = accountData?.balance_usd ?? 0;
-  const equity = accountData?.equity_usd ?? 0;
-  const openTrades = accountData?.open_trades ?? 0;
-  const closedTrades = accountData?.closed_trades ?? 0;
-  const winRate = accountData?.win_rate ?? 0;
-  const totalPnl = accountData?.total_pnl_usd ?? 0;
-  const accountMode = accountData?.mode ?? "simulate";
+  const handleDynamicPositionsChange = async (enabled: boolean) => {
+    setDynamicPositions(enabled);
+    localStorage.setItem("dynamicPositions", JSON.stringify(enabled));
+    try {
+      await fetch(`${apiUrl("settings/dynamic-positions")}?enabled=${enabled}`, { method: "POST" });
+    } catch (e) {
+      console.error("Failed to set dynamic positions:", e);
+    }
+  };
+
+  // API returns nested "account" object with stats
+  const account = accountData?.account ?? accountData;
+  const balance = account?.balance_usd ?? accountData?.balance_usd ?? 0;
+  const equity = account?.equity_usd ?? accountData?.equity_usd ?? 0;
+  const openTrades = account?.open_trades ?? accountData?.open_trades ?? 0;
+  const closedTrades = account?.closed_trades ?? 0;
+  const winRate = account?.win_rate ?? 0;
+  const totalPnl = account?.total_pnl_usd ?? 0;
+  const accountMode = account?.mode ?? accountData?.mode ?? "simulate";
 
   useEffect(() => {
     const updateScan = () => {
@@ -254,6 +270,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
       <BrokerToggle
         value={broker}
         onChange={handleBrokerChange}
+      />
+
+      {/* Dynamic Positions */}
+      <DynamicPositionsToggle
+        value={dynamicPositions}
+        onChange={handleDynamicPositionsChange}
       />
 
       {/* Instruments

@@ -404,6 +404,28 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Include BB bands in price range
   let maxPrice = Math.max(...validData.map((d) => d.high));
   let minPrice = Math.min(...validData.map((d) => d.low));
+  
+  // Extend range to include trade entry/exit prices (BUG 5 fix)
+  if (trades.length > 0) {
+    const symbolTrades = trades.filter(t => t.symbol === symbol);
+    for (const t of symbolTrades) {
+      if (t.entry_price < minPrice) minPrice = t.entry_price;
+      if (t.entry_price > maxPrice) maxPrice = t.entry_price;
+      if (t.exit_price) {
+        if (t.exit_price < minPrice) minPrice = t.exit_price;
+        if (t.exit_price > maxPrice) maxPrice = t.exit_price;
+      }
+    }
+  }
+  
+  // Also extend for selectedPosition (TP/SL lines)
+  if (selectedPosition) {
+    if (selectedPosition.take_profit > maxPrice) maxPrice = selectedPosition.take_profit;
+    if (selectedPosition.stop_loss < minPrice) minPrice = selectedPosition.stop_loss;
+    if (selectedPosition.entry_price < minPrice) minPrice = selectedPosition.entry_price;
+    if (selectedPosition.entry_price > maxPrice) maxPrice = selectedPosition.entry_price;
+  }
+  
   if (overlays.bb) {
     for (const v of (displayBB?.upper || [])) {
       if (v !== null && v > maxPrice) maxPrice = v;
@@ -500,6 +522,59 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const handleDragEnd = () => {
     setIsDragging(false);
   };
+
+  // TP/SL line dragging
+  const [draggingLine, setDraggingLine] = useState<"tp" | "sl" | null>(null);
+  const [dragLineStartY, setDragLineStartY] = useState(0);
+  const [dragLineStartValue, setDragLineStartValue] = useState(0);
+
+  const handleLineDragStart = (line: "tp" | "sl", e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraggingLine(line);
+    setDragLineStartY(e.clientY);
+    const currentValue = line === "tp" 
+      ? selectedPosition?.take_profit 
+      : selectedPosition?.stop_loss;
+    setDragLineStartValue(currentValue || 0);
+  };
+
+  const handleLineDragMove = useCallback((e: MouseEvent) => {
+    if (!draggingLine || !selectedPosition) return;
+    
+    const deltaY = dragLineStartY - e.clientY; // Invert: drag up = increase
+    const sensitivity = priceRange / priceChartH; // pixels to price
+    const deltaPrice = deltaY * sensitivity;
+    
+    const newValue = dragLineStartValue + deltaPrice;
+    // Round to reasonable precision
+    const roundedValue = Math.round(newValue * 100) / 100;
+    
+    // Dispatch event for parent to handle
+    window.dispatchEvent(new CustomEvent("adjustPositionLine", {
+      detail: {
+        positionId: selectedPosition.id,
+        type: draggingLine,
+        value: roundedValue
+      }
+    }));
+  }, [draggingLine, selectedPosition, dragLineStartY, dragLineStartValue, priceRange, priceChartH]);
+
+  const handleLineDragEnd = useCallback(() => {
+    setDraggingLine(null);
+  }, []);
+
+  // Add/remove global event listeners for line dragging
+  useEffect(() => {
+    if (draggingLine) {
+      window.addEventListener("mousemove", handleLineDragMove);
+      window.addEventListener("mouseup", handleLineDragEnd);
+      return () => {
+        window.removeEventListener("mousemove", handleLineDragMove);
+        window.removeEventListener("mouseup", handleLineDragEnd);
+      };
+    }
+  }, [draggingLine, handleLineDragMove, handleLineDragEnd]);
 
   // Price grid levels
   const priceLevels = [];
@@ -1374,46 +1449,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                 .filter((t) => t.symbol === symbol)
                 .map((trade) => {
                   try {
-                    // Parse trade timestamps
+                    // Find the correct candle index based on trade opened_at timestamp
                     const entryDate = new Date(trade.opened_at.replace('Z', '+00:00'));
-                    if (isNaN(entryDate.getTime())) return null;
-                    const exitDate = trade.closed_at 
-                      ? new Date(trade.closed_at.replace('Z', '+00:00'))
-                      : null;
+                    let effectiveEntryIdx = validData.findIndex((c) => {
+                      if (!c.timestamp) return false;
+                      const candleDate = new Date(c.timestamp + "Z");
+                      // Find candle that matches or is closest to trade open time
+                      return candleDate.getTime() <= entryDate.getTime();
+                    });
+                    // If no candle found before trade time, use the FIRST candle (not last!)
+                    if (effectiveEntryIdx < 0) effectiveEntryIdx = 0;
+                    if (effectiveEntryIdx < 0 || effectiveEntryIdx >= validData.length) return null;
 
-                    // Resolution in milliseconds
-                    const resolutionMs = resolution === 'D' ? 86400000 : parseInt(resolution) * 60000;
-
-                    // Helper: find candle that contains the trade time
-                    // Both trades and candles use UTC timestamps
-                    const findCandleIndex = (tradeTime: Date): number => {
-                      const tradeMs = tradeTime.getTime();
-                      
-                      for (let i = 0; i < validData.length; i++) {
-                        const c = validData[i];
-                        if (!c.timestamp) continue;
-                        // Both are UTC - parse as UTC
-                        const candleStart = new Date(c.timestamp + "Z").getTime();
-                        // Estimate candle end based on next candle or resolution
-                        const resolutionMs = resolution === 'D' ? 86400000 : parseInt(resolution) * 60000;
-                        const nextCandle = validData[i + 1];
-                        const candleEnd = nextCandle?.timestamp 
-                          ? new Date(nextCandle.timestamp + "Z").getTime()
-                          : candleStart + resolutionMs;
-                        
-                        if (tradeMs >= candleStart && tradeMs < candleEnd) {
-                          return i;
-                        }
-                      }
-                      // Fallback: find first candle after trade time
-                      return validData.findIndex(c => c.timestamp && new Date(c.timestamp + "Z").getTime() > tradeMs);
-                    };
-
-                    const entryIdx = findCandleIndex(entryDate);
-                    const exitIdx = exitDate ? findCandleIndex(exitDate) : -1;
-                    if (entryIdx === -1 || entryIdx >= validData.length) return null;
-
-                    const entryX = idxToX(entryIdx);
+                    const entryX = idxToX(effectiveEntryIdx);
                     const entryY = priceToY(trade.entry_price);
                     const isBuy = trade.direction === "buy";
                     const entryColor = isBuy ? "#22c55e" : "#ef4444";
@@ -1464,15 +1512,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                           trade.exit_price &&
                           (() => {
                             const exitDate = new Date(trade.closed_at.replace('Z', '+00:00'));
-                            const exitIdx = validData.findIndex((c, i) => {
-                              if (c.timestamp && i > entryIdx) {
+                            const exitIdxRaw = validData.findIndex((c, i) => {
+                              if (c.timestamp && i > effectiveEntryIdx) {
                                 const candleDate = new Date((c.timestamp || "") + "Z");
                                 return candleDate.getTime() >= exitDate.getTime();
                               }
                               return false;
                             });
+                            // Use last candle as fallback
+                            // Use first candle if exit not found (not last!)
+                            const exitIdx = exitIdxRaw === -1 ? 0 : exitIdxRaw;
 
-                            if (exitIdx === -1) return null;
+                            if (exitIdx < 0 || exitIdx >= validData.length) return null;
 
                             const exitX = idxToX(exitIdx);
                             const exitY = priceToY(trade.exit_price!);
@@ -1534,16 +1585,57 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           <g>
             <text x={chartWidth-25} y={20} fill="#666" fontSize={14} style={{cursor:"pointer"}} onClick={() => window.dispatchEvent(new CustomEvent("clearPosition"))}>✕</text>
           <g>
-                        {/* TP Line - clickable */}
-            <line x1="0" x2={chartWidth} y1={priceToY(selectedPosition.take_profit)} y2={priceToY(selectedPosition.take_profit)} stroke="#22c55e" strokeWidth="1" strokeDasharray="5,3" />
-            <text x="5" y={priceToY(selectedPosition.take_profit) - 5} fill="#22c55e" fontSize="10" fontWeight="bold" style={{pointerEvents:"none"}}>TP: {selectedPosition.take_profit.toFixed(0)} (+)</text>
+            {/* TP Line - draggable */}
+            <line 
+              x1="0" x2={chartWidth} 
+              y1={priceToY(selectedPosition.take_profit)} 
+              y2={priceToY(selectedPosition.take_profit)} 
+              stroke="#22c55e" 
+              strokeWidth={draggingLine === "tp" ? "2" : "1.5"} 
+              strokeDasharray="5,3" 
+              style={{ cursor: "ns-resize" }}
+              onMouseDown={(e) => handleLineDragStart("tp", e)}
+            />
+            {/* TP hit area - larger for easier grabbing */}
+            <line 
+              x1="0" x2={chartWidth} 
+              y1={priceToY(selectedPosition.take_profit) - 8} 
+              y2={priceToY(selectedPosition.take_profit) + 8} 
+              stroke="transparent" 
+              strokeWidth="16" 
+              style={{ cursor: "ns-resize" }}
+              onMouseDown={(e) => handleLineDragStart("tp", e)}
+            />
+            <text x="5" y={priceToY(selectedPosition.take_profit) - 8} fill="#22c55e" fontSize="11" fontWeight="bold">TP: {selectedPosition.take_profit.toFixed(2)}</text>
+            <text x={usableWidth - 5} y={priceToY(selectedPosition.take_profit) + 3} fill="#22c55e" fontSize="9" textAnchor="end" opacity="0.7">↕ drag</text>
             
-            {/* SL Line - clickable */}
-            <line x1="0" x2={chartWidth} y1={priceToY(selectedPosition.stop_loss)} y2={priceToY(selectedPosition.stop_loss)} stroke="#ef4444" strokeWidth="1" strokeDasharray="5,3" />
-            <text x="5" y={priceToY(selectedPosition.stop_loss) - 5} fill="#ef4444" fontSize="10" fontWeight="bold" style={{pointerEvents:"none"}}>SL: {selectedPosition.stop_loss.toFixed(0)} (-)</text>
+            {/* SL Line - draggable */}
+            <line 
+              x1="0" x2={chartWidth} 
+              y1={priceToY(selectedPosition.stop_loss)} 
+              y2={priceToY(selectedPosition.stop_loss)} 
+              stroke="#ef4444" 
+              strokeWidth={draggingLine === "sl" ? "2" : "1.5"} 
+              strokeDasharray="5,3" 
+              style={{ cursor: "ns-resize" }}
+              onMouseDown={(e) => handleLineDragStart("sl", e)}
+            />
+            {/* SL hit area - larger for easier grabbing */}
+            <line 
+              x1="0" x2={chartWidth} 
+              y1={priceToY(selectedPosition.stop_loss) - 8} 
+              y2={priceToY(selectedPosition.stop_loss) + 8} 
+              stroke="transparent" 
+              strokeWidth="16" 
+              style={{ cursor: "ns-resize" }}
+              onMouseDown={(e) => handleLineDragStart("sl", e)}
+            />
+            <text x="5" y={priceToY(selectedPosition.stop_loss) - 8} fill="#ef4444" fontSize="11" fontWeight="bold">SL: {selectedPosition.stop_loss.toFixed(2)}</text>
+            <text x={usableWidth - 5} y={priceToY(selectedPosition.stop_loss) + 3} fill="#ef4444" fontSize="9" textAnchor="end" opacity="0.7">↕ drag</text>
             
             {/* Entry Line */}
-            <line x1="0" x2={chartWidth} y1={priceToY(selectedPosition.entry_price)} y2={priceToY(selectedPosition.entry_price)} stroke="#fbbf24" strokeWidth="1" strokeDasharray="3,2" opacity="0.6" />
+            <line x1="0" x2={chartWidth} y1={priceToY(selectedPosition.entry_price)} y2={priceToY(selectedPosition.entry_price)} stroke="#fbbf24" strokeWidth="1" strokeDasharray="3,2" opacity="0.8" />
+            <text x="5" y={priceToY(selectedPosition.entry_price) - 5} fill="#fbbf24" fontSize="10" fontWeight="bold" opacity="0.9">ENTRY: {selectedPosition.entry_price.toFixed(2)}</text>
           </g>
           </g>
         )}

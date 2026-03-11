@@ -313,7 +313,7 @@ export const adjustPosition = async (
   if (takeProfit !== undefined) params.set("take_profit", takeProfit.toString());
   if (stopLoss !== undefined) params.set("stop_loss", stopLoss.toString());
   
-  const response = await fetch(`${apiUrl}/trade/adjust/${positionId}?${params}`, {
+  const response = await fetch(`${apiUrl}/trades/update/${positionId}?${params}`, {
     method: "POST",
   });
   
@@ -324,7 +324,7 @@ export const adjustPosition = async (
 };
 
 export const closePosition = async (positionId: string): Promise<void> => {
-  const response = await fetch(`${apiUrl}/trade/close/${positionId}`, {
+  const response = await fetch(`${apiUrl}/trade/${positionId}/close`, {
     method: "POST",
   });
   
