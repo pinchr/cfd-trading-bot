@@ -85,15 +85,16 @@ async def get_candle_history(
     to_time: str = Query(None, description="ISO timestamp or YYYY-MM-DD"),
 ):
     """Get historical candle data with aggregation from smaller intervals."""
+    import traceback
     try:
         from database import get_db
         async_load_candle_history = get_async_load_candle_history()
         
         # Direct fetch from accumulated history
-        candles = await async_load_candle_history(symbol, resolution, count, from_time, to_time)
+        candles = await async_load_candle_history(symbol, resolution, start=from_time, end=to_time, limit=count)
 
         # Try aggregation from smaller intervals if not enough data
-        if len(candles) < min(10, count):
+        if candles and len(candles) < min(10, count):
             source_candidates = {
                 "5": ["1"],
                 "15": ["5", "1"],
@@ -104,16 +105,19 @@ async def get_candle_history(
             }
             db = get_db()
             for src_res in source_candidates.get(resolution, []):
-                stored = await async_load_candle_history(symbol, src_res, count, from_time, to_time)
+                stored = await async_load_candle_history(symbol, src_res, start=from_time, end=to_time, limit=count)
                 if stored and len(stored) >= 2:
-                    aggregated = db.aggregate_candles(stored, resolution)
-                    if len(aggregated) > len(candles):
-                        candles = aggregated[-count:]
-                        break
+                    try:
+                        aggregated = db.aggregate_candles(stored, resolution)
+                        if len(aggregated) > len(candles):
+                            candles = aggregated[-count:]
+                            break
+                    except Exception as agg_err:
+                        print(f"[AGGREGATE ERROR] {agg_err}")
 
-        return {"symbol": symbol, "resolution": resolution, "candles": candles, "count": len(candles)}
+        return {"symbol": symbol, "resolution": resolution, "candles": candles, "count": len(candles) if candles else 0}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "trace": traceback.format_exc()}
 
 
 @router.get("/candles/stats")

@@ -40,8 +40,8 @@ except ImportError:
 
 
 def calculate_signal_score(indicators: dict) -> Tuple[float, str]:
-    """
-    Regime-adaptive signal scoring (same logic as production).
+    """Regime-adaptive signal scoring (same logic as production).
+
     Returns (score, direction) where score is -1..+1.
     """
     scores = []
@@ -64,7 +64,8 @@ def calculate_signal_score(indicators: dict) -> Tuple[float, str]:
         elif rsi > 55:
             rsi_score = -(rsi - 55) / 45 * 0.3
         else:
-            rsi_score = 0
+            # Neutral zone 45-55: weak signal based on position
+            rsi_score = (50 - rsi) / 50 * 0.2  # 50 = center, gives small directional bias
         scores.append(max(-1, min(1, rsi_score)))
         weights.append(0.15 if is_trending else 0.25)
 
@@ -77,7 +78,8 @@ def calculate_signal_score(indicators: dict) -> Tuple[float, str]:
         elif k > 80:
             stoch_score = -(0.6 + (k - 80) / 50)
         else:
-            stoch_score = 0
+            # Neutral zone 20-80: weak signal based on position
+            stoch_score = (50 - k) / 50 * 0.2  # weak directional bias
         if k > d and k < 30:
             stoch_score = max(stoch_score, 0.5)
         elif k < d and k > 70:
@@ -169,9 +171,9 @@ def calculate_signal_score(indicators: dict) -> Tuple[float, str]:
     return score, scores
 
 
-def get_direction(score: float, min_score: float = 0.15) -> str:
+def get_direction(score: float, min_score: float = 0.05) -> str:
     """Convert score to direction string using per-instrument threshold."""
-    strong_threshold = max(0.45, min_score + 0.20)
+    strong_threshold = max(0.25, min_score + 0.15)
     if score > strong_threshold:
         return "STRONG_BUY"
     elif score > min_score:
@@ -205,6 +207,11 @@ class BacktestTrade:
     exit_time: Optional[str] = None
     exit_reason: Optional[str] = None  # "TP", "SL", "TRAIL", "TIMEOUT", "END"
     pnl_pct: float = 0.0
+    # Risk/position sizing fields
+    size: float = 0.0  # position size in units
+    leverage: float = 1.0  # leverage applied to this trade
+    risk_amount: float = 0.0  # risk amount in account currency for this trade
+    use_risk_manager: bool = False  # whether this trade was sized via JSON RiskManager
 
 
 @dataclass
@@ -237,10 +244,10 @@ MAX_HOLD_CANDLES = 20
 # min_agreement: how many indicators must agree to enter
 # asset_class: "commodity" gets trend-alignment filter
 INSTRUMENT_CONFIG = {
-    "XAU": {"min_score": 0.30, "min_agreement": 3, "asset_class": "commodity", "leverage": 20, "trailing_stop": True},
-    "XAG": {"min_score": 0.28, "min_agreement": 3, "asset_class": "commodity", "leverage": 20, "trailing_stop": True},
-    "US100": {"min_score": 0.20, "min_agreement": 2, "asset_class": "equity", "leverage": 20, "trailing_stop": True},
-    "BTC": {"min_score": 0.20, "min_agreement": 2, "asset_class": "crypto", "leverage": 5, "trailing_stop": True},
+    "XAU": {"min_score": 0.05, "min_agreement": 2, "asset_class": "commodity", "leverage": 20, "trailing_stop": True},
+    "XAG": {"min_score": 0.05, "min_agreement": 2, "asset_class": "commodity", "leverage": 10, "trailing_stop": True},
+    "US100": {"min_score": 0.05, "min_agreement": 2, "asset_class": "equity", "leverage": 20, "trailing_stop": True},
+    "BTC": {"min_score": 0.05, "min_agreement": 2, "asset_class": "crypto", "leverage": 2, "trailing_stop": True},
 }
 
 
@@ -254,9 +261,10 @@ def run_backtest(
     htf_candles: Optional[List[Dict]] = None,
     use_unified_strategy: bool = True,
     strategy_id: Optional[str] = None,
+    max_hold_candles: int = MAX_HOLD_CANDLES,
+    max_atr_pct: float = 3.0,
 ) -> BacktestResult:
-    """
-    Run backtest over historical candle data.
+    """Run backtest over historical candle data.
 
     Walks forward through candles, computing indicators on the trailing window,
     generating signals, and simulating trades with TP/SL exits.
@@ -264,10 +272,12 @@ def run_backtest(
     htf_candles: optional higher-timeframe (e.g. daily) candles for multi-TF filter.
     use_unified_strategy: if True, use analyze_with_new_strategy() for signal generation
     strategy_id: specific JSON strategy to use (e.g., "btc_v3_exp")
+    max_hold_candles: maximum number of candles to hold a trade before TIMEOUT
+    max_atr_pct: maximum ATR% (ATR/price*100) allowed before skipping a bar
     """
     # Track if we're using unified strategy
     using_unified = use_unified_strategy and HAS_UNIFIED_ANALYSIS and analyze_strategy is not None
-    
+
     # Force reload strategy manager to ensure clean state (indicators reset)
     # This ensures deterministic results between backtest runs
     if using_unified and get_strategy_manager:
@@ -275,10 +285,10 @@ def run_backtest(
             get_strategy_manager(force_reload=True)
         except Exception:
             pass  # Ignore errors - may not have the function
-    
+
     if using_unified:
         print(f"[BACKTEST] Using unified strategy: {strategy_id or 'default'}")
-    
+
     if len(candles) < LOOKBACK + 10:
         raise ValueError(f"Need at least {LOOKBACK + 10} candles, got {len(candles)}")
 
@@ -305,6 +315,8 @@ def run_backtest(
     equity_curve = [balance]
     total_signals = 0
     neutral_skipped = 0
+
+    last_unified_result: Optional[Dict] = None
 
     for i in range(LOOKBACK, len(candles)):
         # Trailing window for indicator computation
@@ -356,7 +368,7 @@ def run_backtest(
 
             # Timeout
             bars_held = i - trade.entry_idx
-            hit_timeout = bars_held >= MAX_HOLD_CANDLES
+            hit_timeout = bars_held >= max_hold_candles
 
             if hit_sl:
                 trade.exit_price = trade.stop_loss
@@ -374,29 +386,40 @@ def run_backtest(
             trade.exit_time = current.get("timestamp", current.get("time", ""))
 
             # P&L % includes leverage effect
-            leverage = INSTRUMENT_CONFIG.get(symbol, {}).get("leverage", 1)
+            leverage = trade.leverage or INSTRUMENT_CONFIG.get(symbol, {}).get("leverage", 1)
             if trade.direction == "BUY":
                 raw_pct = ((trade.exit_price - trade.entry_price) / trade.entry_price) * 100
             else:
                 raw_pct = ((trade.entry_price - trade.exit_price) / trade.entry_price) * 100
             trade.pnl_pct = raw_pct * leverage
 
-            # Update balance using initial SL for position sizing
-            risk_amount = balance * (risk_per_trade_pct / 100)
-            initial_sl = trade.initial_sl if trade.initial_sl else trade.stop_loss
-            risk_per_unit = abs(trade.entry_price - initial_sl)
-            if risk_per_unit > 0:
-                position_value = risk_amount / (risk_per_unit * leverage) * trade.entry_price
-                dollar_pnl = position_value * (raw_pct / 100) * leverage
+            if trade.use_risk_manager and trade.size > 0:
+                # RiskManager path: PnL = price * size * pct * leverage
+                dollar_pnl = trade.entry_price * trade.size * (raw_pct / 100.0) * leverage
             else:
-                dollar_pnl = 0
-            balance += dollar_pnl
+                # Legacy sizing: use risk_per_trade_pct and initial SL distance
+                risk_amount = balance * (risk_per_trade_pct / 100)
+                initial_sl = trade.initial_sl if trade.initial_sl else trade.stop_loss
+                risk_per_unit = abs(trade.entry_price - initial_sl)
+                if risk_per_unit > 0:
+                    position_value = risk_amount / (risk_per_unit * leverage) * trade.entry_price
+                    dollar_pnl = position_value * (raw_pct / 100) * leverage
+                else:
+                    dollar_pnl = 0
 
+            balance += dollar_pnl
             closed_this_bar.append(trade)
 
         for t in closed_this_bar:
             open_trades.remove(t)
             trades.append(t)
+
+        # Track current exposure and open risk for RiskManager sizing
+        current_exposure_notional = sum(
+            abs(t.size) * t.entry_price * (t.leverage or INSTRUMENT_CONFIG.get(symbol, {}).get("leverage", 1))
+            for t in open_trades
+        )
+        open_risk_amount = sum(t.risk_amount for t in open_trades)
 
         equity_curve.append(balance)
         peak_balance = max(peak_balance, balance)
@@ -410,6 +433,8 @@ def run_backtest(
         # Use unified strategy if requested
         using_unified_result = False  # Track if we actually got a unified result
         strategy_exists_for_symbol = False  # Track if any strategy exists for this symbol
+        last_unified_result = None
+
         if using_unified:
             # Try to get signal from unified strategy
             try:
@@ -432,36 +457,35 @@ def run_backtest(
                                         break
                     except Exception:
                         pass
-                
+
                 # Also compute indicators for filters
                 ind = TechnicalIndicators.calculate_all(window, period=14)
                 if not ind:
                     continue
                 ind["_closes"] = [c["close"] for c in window]
-                
+
                 # Volatility filter (same as production)
                 atr = ind.get("atr_14", current_price * 0.01)
                 atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
-                if atr_pct > 3.0:
+                if atr_pct > max_atr_pct:
                     continue
-                
+
                 # Get signal from unified strategy
                 result = analyze_strategy(
                     symbol=symbol,
                     candles=window,  # trailing window
                     current_price=current_price,
                     balance=initial_balance,
-                    requested_strategy=strategy_id
+                    requested_strategy=strategy_id,
                 )
-                
-                if result and result.get('direction'):
-                    # Convert to format expected by backtester
-                    direction = result['direction']
-                    score = result.get('score', 0)
-                    direction_str = 'BUY' if direction == 'long' else 'SELL'
+
+                if result and result.get("direction"):
+                    # Use unified strategy outcome directly later
+                    score = result.get("score", 0)
                     component_scores = [score]  # Simplified
                     total_signals += 1
-                    using_unified_result = True  # Mark that unified strategy gave us a valid signal
+                    using_unified_result = True
+                    last_unified_result = result
                 elif result is None:
                     # Strategy returned None - could be no strategy OR filters failed
                     # Only fall back if NO strategy exists for this symbol
@@ -469,7 +493,9 @@ def run_backtest(
                     if not strategy_exists_for_symbol:
                         # No strategy at all for this symbol - fall back to traditional scoring
                         if verbose:
-                            print(f"[BACKTEST] No strategy found for {symbol}, falling back to traditional scoring")
+                            print(
+                                f"[BACKTEST] No strategy found for {symbol}, falling back to traditional scoring"
+                            )
                         ind = TechnicalIndicators.calculate_all(window, period=14)
                         if not ind:
                             continue
@@ -481,7 +507,9 @@ def run_backtest(
                         # Strategy exists but filters failed or no signal - skip this bar
                         # Do NOT fall back - use the strategy's filtering
                         if verbose:
-                            print(f"[BACKTEST] Strategy exists for {symbol} but no signal (filters/data), skipping bar")
+                            print(
+                                f"[BACKTEST] Strategy exists for {symbol} but no signal (filters/data), skipping bar"
+                            )
                         neutral_skipped += 1
                         continue
                 else:
@@ -515,13 +543,13 @@ def run_backtest(
             # Volatility filter (same as production)
             atr = ind.get("atr_14", current_price * 0.01)
             atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
-            if atr_pct > 3.0:
+            if atr_pct > max_atr_pct:
                 continue
 
             score, component_scores = calculate_signal_score(ind)
             total_signals += 1
 
-        # Blend in higher-TF bias (if available)
+        # Blend in higher-TF bias (if available) for non-unified path
         if not using_unified and abs(htf_bias) > 0.1:
             score = score * 0.85 + htf_bias * 0.15
             score = max(-1, min(1, score))
@@ -532,8 +560,6 @@ def run_backtest(
                 score *= 0.5
 
         # Per-instrument threshold - use from unified result or config
-        # Only use min_score=0.0 if we actually got a unified strategy result
-        # If we fell back to traditional scoring, use the config threshold
         if using_unified and using_unified_result:
             # Unified strategy already applies its own thresholds
             min_score = 0.0
@@ -543,9 +569,26 @@ def run_backtest(
             min_score = inst_config.get("min_score", 0.15)
 
         inst_config = INSTRUMENT_CONFIG.get(symbol, {})  # Always need this for filters
-        direction = get_direction(score, min_score=min_score)
 
-        if direction == "NEUTRAL":
+        # Determine direction label
+        if using_unified and using_unified_result and last_unified_result is not None:
+            json_dir = last_unified_result.get("direction")
+            if json_dir == "long":
+                direction_label = "BUY"
+            elif json_dir == "short":
+                direction_label = "SELL"
+            else:
+                # Unexpected value -> skip conservatively
+                if verbose:
+                    print(
+                        f"[BACKTEST] Unexpected JSON direction '{json_dir}' for {symbol}, skipping bar"
+                    )
+                neutral_skipped += 1
+                continue
+        else:
+            direction_label = get_direction(score, min_score=min_score)
+
+        if direction_label == "NEUTRAL":
             neutral_skipped += 1
             continue
 
@@ -564,7 +607,7 @@ def run_backtest(
             asset_class = inst_config.get("asset_class", "crypto")
             if asset_class == "commodity" and sma_50:
                 price_above_sma50 = current_price > sma_50
-                is_buy = direction in ("BUY", "STRONG_BUY")
+                is_buy = direction_label in ("BUY", "STRONG_BUY")
                 if is_buy and not price_above_sma50:
                     neutral_skipped += 1
                     continue
@@ -589,7 +632,7 @@ def run_backtest(
             else:
                 sl_mult, tp_mult = 1.5, 3.0
 
-        if direction in ("BUY", "STRONG_BUY"):
+        if direction_label in ("BUY", "STRONG_BUY"):
             stop_loss = current_price - (atr * sl_mult)
             take_profit = current_price + (atr * tp_mult)
             trade_dir = "BUY"
@@ -597,6 +640,41 @@ def run_backtest(
             stop_loss = current_price + (atr * sl_mult)
             take_profit = current_price - (atr * tp_mult)
             trade_dir = "SELL"
+
+        # Determine leverage and position size
+        leverage = inst_config.get("leverage", 1)
+        size = 0.0
+        risk_amount_for_trade = 0.0
+        use_risk_manager_flag = False
+
+        if using_unified and using_unified_result and last_unified_result is not None and get_strategy_manager:
+            try:
+                mgr = get_strategy_manager()
+                strat_id = last_unified_result.get("strategy_id") or strategy_id
+                if mgr and strat_id and strat_id in mgr.strategies:
+                    strat = mgr.strategies[strat_id]
+                    rm = getattr(strat, "risk_manager", None)
+                    if rm is not None:
+                        # Use RiskManager config for leverage and sizing
+                        leverage = getattr(rm, "leverage", leverage)
+                        size = rm.calculate_position_size(
+                            balance=balance,
+                            price=current_price,
+                            current_exposure=current_exposure_notional,
+                            open_risk_amount=open_risk_amount,
+                        )
+                        risk_amount_for_trade = rm.calculate_risk_amount(balance)
+                        if size <= 0 or risk_amount_for_trade <= 0:
+                            if verbose:
+                                print(
+                                    f"[BACKTEST] RiskManager blocked trade for {symbol} (size={size}, risk={risk_amount_for_trade}), skipping"
+                                )
+                            neutral_skipped += 1
+                            continue
+                        use_risk_manager_flag = True
+            except Exception as e:
+                if verbose:
+                    print(f"[BACKTEST] RiskManager error for {symbol}: {e}, falling back to legacy sizing")
 
         trade = BacktestTrade(
             entry_idx=i,
@@ -609,19 +687,23 @@ def run_backtest(
             initial_sl=round(stop_loss, 2),
             atr_at_entry=atr if use_trailing else 0.0,
             best_price=current_price,
+            size=size,
+            leverage=leverage,
+            risk_amount=risk_amount_for_trade,
+            use_risk_manager=use_risk_manager_flag,
         )
         open_trades.append(trade)
 
         if verbose:
             print(
                 f"  [{current.get('time', i)}] {trade_dir} @ {current_price:.2f} "
-                f"(score={score:.3f}, SL={stop_loss:.2f}, TP={take_profit:.2f})"
+                f"(score={score:.3f}, SL={stop_loss:.2f}, TP={take_profit:.2f}, size={size:.4f}, lev={leverage})"
             )
 
     # Force-close any remaining open trades at last candle price
     last_price = candles[-1]["close"]
-    leverage = INSTRUMENT_CONFIG.get(symbol, {}).get("leverage", 1)
     for trade in open_trades:
+        leverage = trade.leverage or INSTRUMENT_CONFIG.get(symbol, {}).get("leverage", 1)
         trade.exit_idx = len(candles) - 1
         trade.exit_price = last_price
         trade.exit_time = candles[-1].get("timestamp", "")
@@ -749,6 +831,10 @@ def results_to_dict(result: BacktestResult) -> dict:
                 "entry_time": t.entry_time,
                 "exit_time": t.exit_time,
                 "score": t.score,
+                "size": t.size,
+                "leverage": t.leverage,
+                "risk_amount": t.risk_amount,
+                "use_risk_manager": t.use_risk_manager,
             }
             for t in result.trades
         ],
@@ -756,8 +842,8 @@ def results_to_dict(result: BacktestResult) -> dict:
 
 
 def aggregate_to_daily(candles: List[Dict]) -> List[Dict]:
-    """
-    Aggregate intraday candles into daily OHLCV bars.
+    """Aggregate intraday candles into daily OHLCV bars.
+
     Groups by date (from timestamp or time field) so that HTF candles
     are consistent with the intraday price path.
     """
@@ -804,11 +890,31 @@ def main():
     parser.add_argument("--symbol", default="XAU", help="Instrument symbol (XAU, XAG, US100, BTC)")
     parser.add_argument("--all", action="store_true", help="Run backtest for all instruments")
     parser.add_argument("--days", type=int, default=365, help="Days of history (default: 365)")
-    parser.add_argument("--resolution", default="D", help="Candle interval: D, 60, 30, 15, 5 (default: D)")
+    parser.add_argument(
+        "--resolution",
+        default="D",
+        help="Candle interval: D, 60, 30, 15, 5 (default: D)",
+    )
     parser.add_argument("--csv", type=str, help="Path to CSV file with OHLCV data")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show individual trade entries")
-    parser.add_argument("--sample", action="store_true", help="Use synthetic/sample data if no real data available")
+    parser.add_argument(
+        "--sample",
+        action="store_true",
+        help="Use synthetic/sample data if no real data available",
+    )
+    parser.add_argument(
+        "--max-hold-candles",
+        type=int,
+        default=MAX_HOLD_CANDLES,
+        help="Max candles to hold a position before TIMEOUT (default: 20)",
+    )
+    parser.add_argument(
+        "--max-atr-pct",
+        type=float,
+        default=3.0,
+        help="Max ATR%% (ATR/price*100) to allow before skipping a bar (default: 3.0)",
+    )
     args = parser.parse_args()
 
     from historical_data import (
@@ -830,7 +936,7 @@ def main():
 
         # Priority: CSV > Yahoo > Alpha Vantage (real data only)
         if args.csv:
-            from historical_data import PRICE_MULTIPLIERS
+            from historical_data import PRICE_MULTUPLIERS as PRICE_MULTIPLIERS  # type: ignore
 
             mult = PRICE_MULTIPLIERS.get(symbol, 1.0)
             candles = load_csv_candles(args.csv, multiplier=mult)
@@ -844,7 +950,7 @@ def main():
             "30": "30m",
             "15": "15m",
             "5": "5m",
-            "1": "2m",  # TODO: we can have such thing how is it suppose to help 
+            "1": "2m",  # TODO: we can have such thing how is it suppose to help
         }
         yahoo_interval = yahoo_interval_map.get(args.resolution, "1d")
 
@@ -880,12 +986,16 @@ def main():
             if candles is None:
                 logging.error(f"No cached data for {symbol} at {args.resolution} resolution")
                 print(f"  Fetching {args.days} days ({args.resolution} candles) from Yahoo Finance...")
-                candles = fetch_yahoo_historical(symbol, period_days=args.days, interval=yahoo_interval)
+                candles = fetch_yahoo_historical(
+                    symbol, period_days=args.days, interval=yahoo_interval
+                )
                 if candles:
                     print(f"  Fetched {len(candles)} candles from Yahoo Finance")
                 else:
                     print(f"  Yahoo fetch failed, trying Alpha Vantage...")
-                    candles = fetch_alpha_vantage_historical(symbol, count=min(args.days, 200))
+                    candles = fetch_alpha_vantage_historical(
+                        symbol, count=min(args.days, 200)
+                    )
                     if candles:
                         print(f"  Fetched {len(candles)} candles from Alpha Vantage")
                     else:
@@ -893,12 +1003,16 @@ def main():
                         candles = fetch_from_db_cache(symbol, args.resolution)
                         if not candles:
                             print(f"  ERROR: No real data available for {symbol}.")
-                            print(f"  Use --csv <file> to provide data, or --sample for synthetic test data.")
+                            print(
+                                f"  Use --csv <file> to provide data, or --sample for synthetic test data."
+                            )
                             continue
 
         # Try sample data ONLY if explicitly requested AND no real data available
         if candles is None and args.sample:
-            print(f"  ERROR: No real data available for {symbol}. Use --csv <file> to provide data.")
+            print(
+                f"  ERROR: No real data available for {symbol}. Use --csv <file> to provide data."
+            )
             continue
 
         # Generate/fetch daily candles for multi-timeframe filter
@@ -909,10 +1023,14 @@ def main():
                 # Aggregate intraday candles into daily bars so HTF is
                 # consistent with the same price path (not independent RNG)
                 htf_candles = aggregate_to_daily(candles)
-                print(f"  HTF: {len(htf_candles)} daily candles (aggregated from {args.resolution}m)")
+                print(
+                    f"  HTF: {len(htf_candles)} daily candles (aggregated from {args.resolution}m)"
+                )
             else:
                 # Try real sources for daily data
-                htf_candles = fetch_yahoo_historical(symbol, period_days=365, interval="1d")
+                htf_candles = fetch_yahoo_historical(
+                    symbol, period_days=365, interval="1d"
+                )
                 if not htf_candles:
                     htf_candles = fetch_alpha_vantage_historical(symbol, count=200)
                 if not htf_candles:
@@ -920,10 +1038,19 @@ def main():
                 if htf_candles:
                     print(f"  HTF: {len(htf_candles)} daily candles loaded")
                 else:
-                    print(f"  HTF: No daily data — running without multi-timeframe filter")
+                    print(
+                        f"  HTF: No daily data — running without multi-timeframe filter"
+                    )
 
         try:
-            result = run_backtest(candles, symbol=symbol, verbose=args.verbose, htf_candles=htf_candles)
+            result = run_backtest(
+                candles,
+                symbol=symbol,
+                verbose=args.verbose,
+                htf_candles=htf_candles,
+                max_hold_candles=args.max_hold_candles,
+                max_atr_pct=args.max_atr_pct,
+            )
             all_results.append(result)
 
             if args.json:
@@ -937,7 +1064,9 @@ def main():
         print("\n" + "=" * 65)
         print("  SUMMARY — ALL INSTRUMENTS")
         print("=" * 65)
-        print(f"  {'Symbol':<8} {'Trades':>7} {'WinRate':>8} {'Return':>9} {'MaxDD':>8} {'PF':>6} {'Sharpe':>7}")
+        print(
+            f"  {'Symbol':<8} {'Trades':>7} {'WinRate':>8} {'Return':>9} {'MaxDD':>8} {'PF':>6} {'Sharpe':>7}"
+        )
         print("  " + "-" * 56)
         for r in all_results:
             print(

@@ -257,11 +257,11 @@ export const MainTab: React.FC<MainTabProps> = ({
       }
     };
     
-    window.addEventListener("adjustPositionLine", handleLineAdjust as EventListener);
+    window.addEventListener("adjustPositionLine", handleLineAdjust as unknown as EventListener);
     
     return () => {
       clearInterval(interval);
-      window.removeEventListener("adjustPositionLine", handleLineAdjust as EventListener);
+      window.removeEventListener("adjustPositionLine", handleLineAdjust as unknown as EventListener);
     };
   }, []);
 
@@ -519,7 +519,8 @@ export const MainTab: React.FC<MainTabProps> = ({
         {/* Collapsible Content */}
         {expandedSection === "signals" && (
           <SignalsGrid 
-            onSignalClick={handleSignalClick} 
+            onSignalClick={handleSignalClick}
+            selectedSymbol={selectedSymbol}
             onRefresh={() => {
               setLastRefresh(r => ({ ...r, signals: Date.now() }));
               // Fetch signals to update state

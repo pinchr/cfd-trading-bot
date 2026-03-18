@@ -8,7 +8,7 @@
       "enabled": true,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",
@@ -60,7 +60,7 @@
         "htf_trend": {
           "enabled": true,
           "indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "source": "close",
           "use_closed_candles_only": true,
           "long_condition": {
@@ -102,7 +102,7 @@
         "dynamic_tp": {
           "enabled": true,
           "htf_indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "use_closed_candles_only": true,
           "rules": [
             {
@@ -177,7 +177,7 @@
       "enabled": false,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",
@@ -229,7 +229,7 @@
         "htf_trend": {
           "enabled": true,
           "indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "source": "close",
           "use_closed_candles_only": true,
           "long_condition": {
@@ -271,7 +271,7 @@
         "dynamic_tp": {
           "enabled": true,
           "htf_indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "use_closed_candles_only": true,
           "rules": [
             {
@@ -346,37 +346,37 @@
       "enabled": false,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.15,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",
             "weight": 2.0,
             "normalized_range": [
               0,
-              100
+              1
             ]
           },
           {
             "name": "MACD",
             "weight": 0.0,
             "normalized_range": [
-              -50,
-              50
+              -1,
+              1
             ]
           },
           {
             "name": "MOMENTUM",
             "weight": 2.0,
             "normalized_range": [
-              -20,
-              20
+              -1,
+              1
             ]
           },
           {
             "name": "ADX",
             "weight": 0.0,
             "normalized_range": [
-              -1,
+              0,
               1
             ]
           }
@@ -398,7 +398,7 @@
         "htf_trend": {
           "enabled": true,
           "indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "source": "close",
           "use_closed_candles_only": true,
           "long_condition": {
@@ -440,7 +440,7 @@
         "dynamic_tp": {
           "enabled": true,
           "htf_indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "use_closed_candles_only": true,
           "rules": [
             {
@@ -507,22 +507,22 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",
             "weight": 2.0,
             "normalized_range": [
               0,
-              100
+              1
             ]
           },
           {
             "name": "MOMENTUM",
             "weight": 2.0,
             "normalized_range": [
-              -20,
-              20
+              -1,
+              1
             ]
           }
         ]
@@ -543,7 +543,7 @@
         "htf_trend": {
           "enabled": false,
           "indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "source": "close",
           "use_closed_candles_only": true,
           "long_condition": {
@@ -585,7 +585,7 @@
         "dynamic_tp": {
           "enabled": true,
           "htf_indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "use_closed_candles_only": true,
           "rules": [
             {
@@ -666,22 +666,22 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",
             "weight": 2.0,
             "normalized_range": [
               0,
-              100
+              1
             ]
           },
           {
             "name": "MOMENTUM",
             "weight": 2.0,
             "normalized_range": [
-              -20,
-              20
+              -1,
+              1
             ]
           }
         ]
@@ -702,7 +702,7 @@
         "htf_trend": {
           "enabled": false,
           "indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "source": "close",
           "use_closed_candles_only": true,
           "long_condition": {
@@ -744,7 +744,7 @@
         "dynamic_tp": {
           "enabled": true,
           "htf_indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "use_closed_candles_only": true,
           "rules": [
             {
@@ -825,22 +825,22 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",
             "weight": 2.0,
             "normalized_range": [
               0,
-              100
+              1
             ]
           },
           {
             "name": "MOMENTUM",
             "weight": 2.0,
             "normalized_range": [
-              -20,
-              20
+              -1,
+              1
             ]
           }
         ]
@@ -861,7 +861,7 @@
         "htf_trend": {
           "enabled": false,
           "indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "source": "close",
           "use_closed_candles_only": true,
           "long_condition": {
@@ -903,7 +903,7 @@
         "dynamic_tp": {
           "enabled": true,
           "htf_indicator": "RSI",
-          "htf_timeframe": "30m",
+          "htf_timeframe": "1H",
           "use_closed_candles_only": true,
           "rules": [
             {
@@ -979,7 +979,7 @@
       "trade_direction": "both",
       "description": "Scalping strategy with tight TP and trailing stop for quick trades on trend changes",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
@@ -1114,7 +1114,7 @@
       "trade_direction": "both",
       "description": "Scalping strategy with tight TP and trailing stop for quick trades on trend changes",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.25,
         "indicators": [
           {
             "name": "RSI",

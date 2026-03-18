@@ -203,7 +203,7 @@ def calculate_position_size(symbol: str, entry_price: float, stop_loss: float, a
     if symbol in ("XAU", "XAG"):
         # Gold: $100 per 1.0 lot per $1 move
         # Silver: $5 per 1.0 lot per $1 move
-        multiplier = 100 if symbol == "XAG" else 100
+        multiplier = 5 if symbol == "XAG" else 100
         position_size = risk_amount / (price_risk * multiplier)
     else:
         # Indices/crypto: simpler calculation

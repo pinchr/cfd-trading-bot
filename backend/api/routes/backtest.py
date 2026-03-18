@@ -264,11 +264,12 @@ async def backtest_from_json(
             current_price = candle.get('close')
             direction = position['direction']
             
-            # Check TP/SL
+            # Check TP/SL - use ACTUAL price difference for PnL
             if direction > 0:  # Long
                 if current_price >= position['tp_price']:
-                    # TP hit
-                    pnl = position['size'] * position['entry_price'] * tp_pct * leverage
+                    # TP hit - use actual price move
+                    price_diff = (position['tp_price'] - position['entry_price']) / position['entry_price']
+                    pnl = position['size'] * position['entry_price'] * price_diff * leverage
                     balance += pnl
                     trades.append({
                         'entry': position['entry_price'],
@@ -279,8 +280,9 @@ async def backtest_from_json(
                     })
                     position = None
                 elif current_price <= position['sl_price']:
-                    # SL hit
-                    pnl = -position['size'] * position['entry_price'] * sl_pct * leverage
+                    # SL hit - use actual price move
+                    price_diff = (position['sl_price'] - position['entry_price']) / position['entry_price']
+                    pnl = position['size'] * position['entry_price'] * price_diff * leverage
                     balance += pnl
                     trades.append({
                         'entry': position['entry_price'],
@@ -292,7 +294,9 @@ async def backtest_from_json(
                     position = None
             else:  # Short
                 if current_price <= position['tp_price']:
-                    pnl = position['size'] * position['entry_price'] * tp_pct * leverage
+                    # TP hit - for short, price went DOWN to TP
+                    price_diff = (position['entry_price'] - position['tp_price']) / position['entry_price']
+                    pnl = position['size'] * position['entry_price'] * price_diff * leverage
                     balance += pnl
                     trades.append({
                         'entry': position['entry_price'],
@@ -303,7 +307,9 @@ async def backtest_from_json(
                     })
                     position = None
                 elif current_price >= position['sl_price']:
-                    pnl = -position['size'] * position['entry_price'] * sl_pct * leverage
+                    # SL hit - for short, price went UP to SL
+                    price_diff = (position['entry_price'] - position['sl_price']) / position['entry_price']
+                    pnl = position['size'] * position['entry_price'] * price_diff * leverage
                     balance += pnl
                     trades.append({
                         'entry': position['entry_price'],

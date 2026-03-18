@@ -1,0 +1,317 @@
+[
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.01
+    },
+    "metrics": {
+      "trade_count": 9,
+      "pnl_pct": -3.12,
+      "win_rate": 55.6,
+      "max_drawdown": 5.2,
+      "profit_factor": 1.24,
+      "loss_rate": 44.44444444444444,
+      "avg_trade_pct": -0.3466666666666667
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:19.241299"
+  },
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.03
+    },
+    "metrics": {
+      "trade_count": 10,
+      "pnl_pct": -3.45,
+      "win_rate": 50.0,
+      "max_drawdown": 5.52,
+      "profit_factor": 1.22,
+      "loss_rate": 50.0,
+      "avg_trade_pct": -0.34500000000000003
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:19.300431"
+  },
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.05
+    },
+    "metrics": {
+      "trade_count": 8,
+      "pnl_pct": -1.14,
+      "win_rate": 62.5,
+      "max_drawdown": 3.96,
+      "profit_factor": 1.84,
+      "loss_rate": 37.5,
+      "avg_trade_pct": -0.1425
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:19.371841"
+  },
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.08
+    },
+    "metrics": {
+      "trade_count": 8,
+      "pnl_pct": -1.88,
+      "win_rate": 50.0,
+      "max_drawdown": 3.96,
+      "profit_factor": 1.6,
+      "loss_rate": 50.0,
+      "avg_trade_pct": -0.235
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:19.444580"
+  },
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.1
+    },
+    "metrics": {
+      "trade_count": 8,
+      "pnl_pct": -1.88,
+      "win_rate": 50.0,
+      "max_drawdown": 3.96,
+      "profit_factor": 1.89,
+      "loss_rate": 50.0,
+      "avg_trade_pct": -0.235
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:19.513412"
+  },
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.15
+    },
+    "metrics": {
+      "trade_count": 5,
+      "pnl_pct": -1.89,
+      "win_rate": 40.0,
+      "max_drawdown": 2.0,
+      "profit_factor": 1.73,
+      "loss_rate": 60.0,
+      "avg_trade_pct": -0.378
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:45.807622"
+  },
+  {
+    "strategy_id": "XAU_5m_optimized",
+    "symbol": "XAU",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.2
+    },
+    "metrics": {
+      "trade_count": 2,
+      "pnl_pct": -2.0,
+      "win_rate": 0.0,
+      "max_drawdown": 2.0,
+      "profit_factor": 0.0,
+      "loss_rate": 100.0,
+      "avg_trade_pct": -1.0
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:45.904103"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.01
+    },
+    "metrics": {
+      "trade_count": 9,
+      "pnl_pct": -3.75,
+      "win_rate": 44.4,
+      "max_drawdown": 5.1,
+      "profit_factor": 0.57,
+      "loss_rate": 55.55555555555556,
+      "avg_trade_pct": -0.4166666666666667
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:45.953480"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.03
+    },
+    "metrics": {
+      "trade_count": 9,
+      "pnl_pct": -3.75,
+      "win_rate": 44.4,
+      "max_drawdown": 5.1,
+      "profit_factor": 0.59,
+      "loss_rate": 55.55555555555556,
+      "avg_trade_pct": -0.4166666666666667
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:46.002685"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.05
+    },
+    "metrics": {
+      "trade_count": 9,
+      "pnl_pct": -3.75,
+      "win_rate": 44.4,
+      "max_drawdown": 5.1,
+      "profit_factor": 0.56,
+      "loss_rate": 55.55555555555556,
+      "avg_trade_pct": -0.4166666666666667
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:13:46.054877"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.08
+    },
+    "metrics": {
+      "trade_count": 8,
+      "pnl_pct": -1.55,
+      "win_rate": 37.5,
+      "max_drawdown": 3.96,
+      "profit_factor": 1.01,
+      "loss_rate": 62.5,
+      "avg_trade_pct": -0.19375
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:14:43.790507"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.1
+    },
+    "metrics": {
+      "trade_count": 8,
+      "pnl_pct": -1.03,
+      "win_rate": 37.5,
+      "max_drawdown": 3.96,
+      "profit_factor": 1.17,
+      "loss_rate": 62.5,
+      "avg_trade_pct": -0.12875
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:14:43.860584"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.15
+    },
+    "metrics": {
+      "trade_count": 6,
+      "pnl_pct": -3.01,
+      "win_rate": 33.3,
+      "max_drawdown": 3.96,
+      "profit_factor": 0.32,
+      "loss_rate": 66.66666666666666,
+      "avg_trade_pct": -0.5016666666666666
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:14:43.937471"
+  },
+  {
+    "strategy_id": "XAG_5m_optimized",
+    "symbol": "XAG",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.2
+    },
+    "metrics": {
+      "trade_count": 3,
+      "pnl_pct": -2.0,
+      "win_rate": 0.0,
+      "max_drawdown": 2.0,
+      "profit_factor": 0.0,
+      "loss_rate": 100.0,
+      "avg_trade_pct": -0.6666666666666666
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:14:44.032747"
+  },
+  {
+    "strategy_id": "BTC_5m_optimized",
+    "symbol": "BTC",
+    "timeframe": "5m",
+    "lookback_period": "1 week",
+    "candle_count": 111,
+    "parameters": {
+      "min_score": 0.01
+    },
+    "metrics": {
+      "trade_count": 9,
+      "pnl_pct": 3.78,
+      "win_rate": 44.4,
+      "max_drawdown": 0.11,
+      "profit_factor": 33.43,
+      "loss_rate": 55.55555555555556,
+      "avg_trade_pct": 0.42
+    },
+    "insights": {},
+    "timestamp": "2026-03-12T01:14:44.082467"
+  }
+]

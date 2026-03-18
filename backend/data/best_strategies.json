@@ -1,0 +1,55 @@
+{
+  "_comment": "Best strategies per symbol/timeframe - updated by optimizer cron",
+  "XAU_5m": {
+    "strategy_id": "xau_5m_default",
+    "parameters": {
+      "min_score": 0.05
+    },
+    "metrics": {
+      "trade_count": 0,
+      "win_rate": 0,
+      "pnl_pct": 0
+    },
+    "updated": "2026-03-12T00:00:00"
+  },
+  "XAG_5m": {
+    "strategy_id": "xag_5m_default",
+    "parameters": {
+      "min_score": 0.05
+    },
+    "metrics": {
+      "trade_count": 0,
+      "win_rate": 0,
+      "pnl_pct": 0
+    },
+    "updated": "2026-03-12T00:00:00"
+  },
+  "BTC_5m": {
+    "strategy_id": "BTC_5m_optimized",
+    "parameters": {
+      "min_score": 0.01
+    },
+    "metrics": {
+      "trade_count": 9,
+      "pnl_pct": 3.78,
+      "win_rate": 44.4,
+      "max_drawdown": 0.11,
+      "profit_factor": 33.43,
+      "loss_rate": 55.55555555555556,
+      "avg_trade_pct": 0.42
+    },
+    "updated": "2026-03-12T01:14:44.084009"
+  },
+  "US100_5m": {
+    "strategy_id": "us100_5m_default",
+    "parameters": {
+      "min_score": 0.05
+    },
+    "metrics": {
+      "trade_count": 0,
+      "win_rate": 0,
+      "pnl_pct": 0
+    },
+    "updated": "2026-03-12T00:00:00"
+  }
+}

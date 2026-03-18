@@ -22,6 +22,7 @@ interface SignalsGridProps {
   signals?: Signal[];
   onSignalClick?: (signal: Signal) => void;
   onRefresh?: () => void;
+  selectedSymbol?: string;
 }
 
 // All known instruments — rows always appear even without signal data
@@ -111,8 +112,14 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
   signals: externalSignals,
   onSignalClick,
   onRefresh,
+  selectedSymbol,
 }) => {
   const [signals, setSignals] = useState<Signal[]>(defaultSignals);
+  
+  // Filter signals by selected symbol from chart
+  const filteredSignals = selectedSymbol
+    ? signals.filter(s => s.symbol === selectedSymbol)
+    : signals;
   const [loading, setLoading] = useState(false);
   const [tradingSymbol, setTradingSymbol] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -507,7 +514,7 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
       {/* Mobile Card Layout */}
       <div className="overflow-auto md:hidden" style={{ maxHeight: "240px" }}>
         <div className="p-2 space-y-2">
-          {signals.map((signal) => {
+          {filteredSignals.map((signal) => {
             const scoreColor = getScoreColor(signal.score);
             const isBuy = signal.direction === "buy";
             const dirColor = isBuy
@@ -709,7 +716,7 @@ export const SignalsGrid: React.FC<SignalsGridProps> = ({
             </tr>
           </thead>
           <tbody>
-            {signals.map((signal) => {
+            {filteredSignals.map((signal) => {
               const scoreColor = getScoreColor(signal.score);
               const isBuy = signal.direction === "buy";
               const dirColor = isBuy

@@ -92,11 +92,8 @@ class Indicator:
         normalized = max(-1.0, min(1.0, normalized))
         
         # Scale to desired range (e.g., [-1, 1])
-        return normalized * ((range_max - range_min) / 2)
+        return range_min + (normalized + 1) / 2 * (range_max - range_min)
     
-    def _get_range(self) -> tuple:
-        """Get min/max range for normalization"""
-        raise NotImplementedError
 
 
 class RsiIndicator(Indicator):

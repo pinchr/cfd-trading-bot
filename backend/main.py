@@ -164,8 +164,28 @@ async def lifespan(app: FastAPI):
     account["last_scan"] = datetime.utcnow().isoformat()
     log_event(f"Account loaded: ${account['balance_usd']:.2f} USD", "success")
 
-    # Start autonomous trading loop
-    _trading_task = asyncio.create_task(auto_trade_loop())
+    # Start autonomous trading loop with watchdog
+    _trading_task = None
+    
+    async def start_auto_trade_with_watchdog():
+        """Start auto-trade loop with automatic restart if it crashes or exits."""
+        from services.trading_engine import auto_trade_loop
+        while True:
+            try:
+                log_event("[AUTO-TRADE-WATCHDOG] Starting auto-trade loop...", "info")
+                await auto_trade_loop()
+                # If we get here, loop exited unexpectedly - log it!
+                log_event("[AUTO-TRADE-WATCHDOG] Loop exited unexpectedly! Restarting...", "error")
+            except Exception as e:
+                import traceback
+                log_event(f"[AUTO-TRADE-WATCHDOG] Loop crashed: {e}", "error")
+                log_event(f"[AUTO-TRADE-WATCHDOG] Traceback: {traceback.format_exc()}", "error")
+            finally:
+                # Always wait before restart
+                log_event("[AUTO-TRADE-WATCHDOG] Waiting 5s before restart...", "info")
+                await asyncio.sleep(5)
+    
+    _trading_task = asyncio.create_task(start_auto_trade_with_watchdog())
     _price_cache_task = asyncio.create_task(price_cache_loop())
     log_event("[AUTO-TRADE] Background task launched (5 min interval)", "success")
     log_event("[PRICE-CACHE] Live price cache started (3 sec refresh)", "success")
@@ -346,7 +366,7 @@ async def backtest(
         symbol=symbol, resolution=resolution, days=days,
         date_from=date_from, date_to=date_to,
         min_score=min_score, initial_balance=initial_balance,
-        strategy=strategy, indicators=indicators, settings=settings,
+        strategy_name=strategy, indicators=indicators, settings=settings,
         leverage=leverage, tp_pct=tp_pct, sl_pct=sl_pct,
         risk_pct=risk_pct, trailing_sl_pct=trailing_sl_pct,
         volume_filter=volume_filter, multi_tf=multi_tf,
@@ -368,7 +388,7 @@ async def run_backtest(
     date_to: Optional[str] = None,
     min_score: float = 0.15,
     initial_balance: float = 3000.0,
-    strategy: Optional[str] = None,
+    strategy_name: Optional[str] = None,
     indicators: Optional[str] = None,
     settings: Optional[str] = None,
     leverage: int = 10,
@@ -425,12 +445,12 @@ async def run_backtest(
         return {"error": f"Unknown symbol: {symbol}"}
 
     # Validate strategy if provided
-    if strategy:
+    if strategy_name:
         from strategies import STRATEGIES
 
-        if strategy not in STRATEGIES:
-            return {"error": f"Unknown strategy: {strategy}. Available: {list(STRATEGIES.keys())}"}
-        strategy_id = strategy
+        if strategy_name not in STRATEGIES:
+            return {"error": f"Unknown strategy: {strategy_name}. Available: {list(STRATEGIES.keys())}"}
+        strategy_id = strategy_name
     else:
         strategy_id = get_symbol_strategy(symbol_key)
 

@@ -8,13 +8,14 @@ from database import async_save_account
 # Import Signal and SignalDirection from models
 from app.logging import log_event
 from models import Signal, SignalDirection
-from services.state import broker, data_provider, open_positions, INSTRUMENTS, AUTO_TRADE_INTERVAL_SEC, AUTO_TRADE_ENABLED, INITIAL_BALANCE_USD
+from services.state import broker, data_provider, open_positions, INSTRUMENTS, AUTO_TRADE_INTERVAL_SEC, INITIAL_BALANCE_USD, get_auto_trade_enabled
 from indicators import TechnicalIndicators
 from database import async_save_signal_cache_db, async_sync_account_from_closed_trades
 from alpha_vantage_news import get_client as get_news_client
 # Import async_timed decorator
 from utils.decorators import async_timed
 from strategies import get_strategy
+from services.strategy_manager import get_symbol_strategy, get_strategy_manager, analyze_with_new_strategy
 # Lazy imports used inside functions to avoid circular dependency
 # (imported from main.py at function call time)
 from services.market_data import get_cached_candles
@@ -43,43 +44,85 @@ async def auto_trade_loop():
     iteration_count = 0
     while True:
         iteration_count += 1
+        
+        # CAŁOŚCIOWY EXCEPTION HANDLER - żeby pętla NIGDY się nie zatrzymała
         try:
-            print(f"[DEBUG AUTO-TRADE] Loop iteration #{iteration_count} at {datetime.utcnow().isoformat()}")
-            if not AUTO_TRADE_ENABLED:
-                await asyncio.sleep(AUTO_TRADE_INTERVAL_SEC)
+            try:
+                print(f"[DEBUG AUTO-TRADE] === START ITERATION #{iteration_count} ===")
+            except Exception as e:
+                print(f"[DEBUG] Failed to print start: {e}")
+            
+            # Check if auto-trade is enabled
+            if not get_auto_trade_enabled():
+                print(f"[DEBUG] Auto-trade DISABLED! Sleeping 30s...")
+                log_event("[AUTO-TRADE] Auto-trade disabled, sleeping 30s...", "info")
+                await asyncio.sleep(30)
                 continue
+                
+            print(f"[DEBUG] Auto-trade enabled, continuing...")
 
             # ── Step 1: Update prices & auto-close TP/SL ──
-            auto_closed = await broker._async_update_prices()
-            if auto_closed:
-                for closed in auto_closed:
-                    pos = closed.get("position", {})
-                    reason = closed.get("exit_reason", "TP/SL")
-                    pnl = pos.get("pnl_usd", 0)
-                    sym = pos.get("symbol", "?")
-                    log_event(
-                        f"[AUTO-CLOSE] {sym} {pos.get('direction', '').upper()} hit {reason} "
-                        f"| P&L: {'+'if pnl>=0 else ''}{pnl:.2f} USD",
-                        "success" if pnl >= 0 else "warning",
-                    )
-                await async_save_account(account)
+            try:
+                auto_closed = await asyncio.wait_for(broker._async_update_prices(), timeout=10.0)
+                if auto_closed:
+                    for closed in auto_closed:
+                        pos = closed.get("position", {})
+                        reason = closed.get("exit_reason", "TP/SL")
+                        pnl = pos.get("pnl_usd", 0)
+                        sym = pos.get("symbol", "?")
+                        log_event(
+                            f"[AUTO-CLOSE] {sym} {pos.get('direction', '').upper()} hit {reason} "
+                            f"| P&L: {'+'if pnl>=0 else ''}{pnl:.2f} USD",
+                            "success" if pnl >= 0 else "warning",
+                        )
+                    await async_save_account(account)
+            except asyncio.TimeoutError:
+                log_event("[AUTO-TRADE] Timeout updating prices!", "error")
+            except Exception as e:
+                log_event(f"[AUTO-TRADE] Error updating prices: {e}", "error")
 
             # ── Step 2: Generate fresh signals ──
-            signals = await generate_signals()
+            try:
+                log_event(f"[AUTO-TRADE] Calling generate_signals()...", "info")
+                print(f"[DEBUG] About to call generate_signals()")
+                signals = await asyncio.wait_for(generate_signals(), timeout=45.0)
+                log_event(f"[AUTO-TRADE] generate_signals() returned {len(signals)} signals", "info")
+                print(f"[DEBUG] generate_signals() returned {len(signals)} signals")
+            except asyncio.TimeoutError:
+                log_event("[AUTO-TRADE] Timeout generating signals!", "error")
+                signals = []
+            except Exception as e:
+                log_event(f"[AUTO-TRADE] Error generating signals: {e}", "error")
+                signals = []
 
             # Update signals cache for TP/SL reference
             signals_cache = {s.symbol: s for s in signals}
 
             # ── Step 3: Auto-execute trades on strong signals ──
+            print(f"[DEBUG] Checking circuit breaker...")
             can_trade, reason = check_circuit_breaker()
+            print(f"[DEBUG] Circuit breaker check: can_trade={can_trade}, reason={reason}")
             # Get risk adjustments from circuit breaker
             size_multiplier = account.get("_risk_multiplier", 1.0)
             min_score_boost = account.get("_min_score_boost", 0.0)
 
             if can_trade:
                 # ── Step 2.5: Dynamic Positions - close weak profitable positions ──
-                current_signals = {s.symbol: s.score for s in signals if s.direction not in (SignalDirection.NEUTRAL,)}
+                current_signals = {s.symbol: s.score for s in signals}
+                
+                # Get fresh positions from broker
+                open_positions = broker.get_open_positions()
+                
+                # DEBUG: Log all current signals and open positions scores
+                log_event(f"[DYNAMIC-DEBUG] Current signals: {current_signals}", "info")
+                for pos in open_positions:
+                    sym = pos.get("symbol")
+                    orig_score = pos.get("original_signal_score", 0)
+                    pnl = pos.get("unrealized_pnl_usd", 0)
+                    log_event(f"[DYNAMIC-DEBUG] {sym} | orig_score={orig_score:.3f} | curr={current_signals.get(sym, 0):.3f} | PnL=${pnl:.2f}", "info")
+                
                 positions_to_close = broker.check_dynamic_exit(current_signals)
+                log_event(f"[DYNAMIC-EXIT] IDs to close: {positions_to_close} | Open positions: {[p['id'] for p in open_positions]}", "info")
                 if positions_to_close:
                     log_event(f"[DYNAMIC-EXIT] Checking {len(positions_to_close)} positions for exit...", "info")
                     for pos_id in positions_to_close:
@@ -158,7 +201,7 @@ async def auto_trade_loop():
                     strategy_json_id = strategy_id.replace("JSON:", "") if strategy_id else None
                     strategy_config_for_tp = {}
                     if strategy_json_id:
-                        from strategy.strategy_manager import get_strategy_manager
+                        from services.strategy_manager import get_strategy_manager
                         manager = get_strategy_manager()
                         if strategy_json_id in manager.strategies:
                             strategy_config_for_tp = manager.strategies[strategy_json_id].config
@@ -177,7 +220,7 @@ async def auto_trade_loop():
                     volatility = 0.0
                     if fresh_candles and len(fresh_candles) >= 20:
                         try:
-                            from strategy.technical import TechnicalIndicators
+                            
                             ind = TechnicalIndicators.calculate_all(fresh_candles, period=14)
                             atr = ind.get('atr_14', 0)
                             volatility = (atr / entry_price) * 100 if entry_price > 0 else 0
@@ -189,7 +232,7 @@ async def auto_trade_loop():
                     strategy_json_id = strategy_id.replace("JSON:", "") if strategy_id else None
                     strategy_config = {}
                     if strategy_json_id:
-                        from strategy.strategy_manager import get_strategy_manager
+                        from services.strategy_manager import get_strategy_manager
                         manager = get_strategy_manager()
                         if strategy_json_id in manager.strategies:
                             strategy_config = manager.strategies[strategy_json_id].config
@@ -232,7 +275,8 @@ async def auto_trade_loop():
             await async_save_account(account)
             
             # Get signal history cache
-            from main import signal_history_cache
+            from services.state import get_signal_history_cache
+            signal_history_cache = get_signal_history_cache()
             await async_save_signal_cache_db(signal_history_cache)
 
             log_event(
@@ -250,14 +294,31 @@ async def auto_trade_loop():
         sleep_cycles = AUTO_TRADE_INTERVAL_SEC // 60
         remaining = AUTO_TRADE_INTERVAL_SEC % 60
         
+        print(f"[DEBUG] Auto-trade iteration #{iteration_count} complete. Going to sleep for {sleep_cycles*60 + remaining}s...")
+        
         try:
             for i in range(sleep_cycles):
-                await asyncio.sleep(60)
+                print(f"[DEBUG] Sleep cycle {i+1}/{sleep_cycles}...")
+                await asyncio.wait_for(asyncio.sleep(60), timeout=65)
             if remaining > 0:
-                await asyncio.sleep(remaining)
+                print(f"[DEBUG] Final sleep {remaining}s...")
+                await asyncio.wait_for(asyncio.sleep(remaining), timeout=remaining + 5)
+            print(f"[DEBUG] Wake up! Starting iteration #{iteration_count + 1}")
+        except asyncio.TimeoutError:
+            print("[DEBUG] Sleep timeout! Continuing anyway...")
+            await asyncio.sleep(30)
         except Exception as e:
+            print(f"[DEBUG] Sleep exception: {e}")
             log_event(f"[AUTO-TRADE] Error in sleep: {str(e)}", "error")
             await asyncio.sleep(30)
+        
+        # Final heartbeat - we're still alive!
+        print(f"[DEBUG] Final heartbeat for iteration #{iteration_count}")
+        
+        # ALWAYS continue the loop - this should NEVER be reached unless there's an issue
+        print(f"[DEBUG] About to loop back to start...")
+        # Explicit continue to make sure we don't exit
+        continue
 
 
 async def execute_trade(symbol: str, direction: str, volume: float, signal_score: float = 0.0, take_profit: float = None, stop_loss: float = None) -> Dict:
@@ -327,12 +388,29 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
         
         # Use StrategyManager from JSON (supports timeframe)
         manager = get_strategy_manager()
+        if not manager or len(manager.strategies) == 0:
+            print("[STRATEGY] No strategies available in manager")
+            return Signal(
+                symbol=symbol,
+                direction=SignalDirection.NEUTRAL,
+                score=0.0,
+                confidence=0.0,
+                technical_score=0.0,
+                price_action_score=0.0,
+                news_score=0.0,
+                components=[],
+                current_price=current_price,
+                time_horizon=timeframe,
+                entry_point=current_price,
+                take_profit=0.0,
+                stop_loss=0.0,
+                risk_reward_ratio=0.0,
+            )
         strategy_obj = manager.strategies.get(selected_strategy)
-        if not strategy_obj:
-            strategy_obj = manager.strategies.get('xau_v3_exp')
         
         # Handle both string and TimeFrame enum
         tf_value = strategy_obj.timeframe if strategy_obj and hasattr(strategy_obj, 'timeframe') else "5m"
+        print(f"[STRATEGY] {symbol}: Using strategy '{selected_strategy}' with timeframe '{tf_value}'")
         if hasattr(tf_value, 'value'):
             tf_value = tf_value.value
         
@@ -491,7 +569,7 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
             json_technical = max(-1.0, min(1.0, new_result["technical_score"]))
             
             # Filter out weak signals - require minimum score threshold from strategy config
-            min_signal_score = new_result.get("confidence", 0.5)  # Use confidence as min threshold
+            min_signal_score = new_result.get("strategy_config", {}).get("score", {}).get("min_score", 0.01)
             if abs(json_score) < min_signal_score:
                 print(f"[SIGNAL] {symbol}: Score {json_score:.3f} below threshold {min_signal_score}, skipping")
                 return Signal(
@@ -589,6 +667,15 @@ async def _analyze_single_symbol(symbol: str, info: dict, news_client_instance) 
 
 @async_timed("generate_signals")
 async def generate_signals() -> List[Signal]:
+    """Generate trading signals for all instruments using regime-adaptive scoring - PARALLEL"""
+    try:
+        return await asyncio.wait_for(_generate_signals_internal(), timeout=60.0)
+    except asyncio.TimeoutError:
+        log_event("[SIGNALS] Timeout generating signals!", "error")
+        return []
+
+async def _generate_signals_internal() -> List[Signal]:
+    """Internal signal generation with timeout wrapper"""
     """Generate trading signals for all instruments using regime-adaptive scoring - PARALLEL"""
     account = broker.get_account()
     now = datetime.utcnow().isoformat()
@@ -773,15 +860,22 @@ def calculate_dynamic_position_size(
     # Calculate position size with adjusted risk
     risk_amount = account_balance * (adjusted_risk / 100)
     risk_per_lot = abs(entry_price - stop_loss_price)
+    symbol = strategy_config.get('symbol', 'XAU')  # Default to XAU if not specified
+    print(f"[POSITION SIZE] {symbol}: Base Risk: {base_risk_percent}% | Adjusted Risk: {adjusted_risk:.2f}% | Score Mod: {score_modifier:.2f} | Conf Mod: {confidence_modifier:.2f} | Pos Mod: {pos_mod:.2f} | Vol Mod: {vol_mod:.2f}")
+    # Commodity multiplier: XAU=$100/lot/$1, XAG=$5/lot/$1
+    # For XAG we need to divide by 5 instead of 100 to get larger lot size
+    commodity_multiplier = 5 if symbol == "XAG" else 100
     
     if risk_per_lot > 0:
-        size = risk_amount / risk_per_lot
+        size = risk_amount / (risk_per_lot * commodity_multiplier)
     else:
-        size = risk_amount / entry_price
+        size = risk_amount / (entry_price * commodity_multiplier)
     
-    # Apply leverage
+    # Apply leverage (capped by instrument max)
+    instrument_leverage = {"XAU": 20, "XAG": 10, "US100": 20, "BTC": 2}.get(symbol, 10)
+    max_allowed_leverage = min(max_leverage, instrument_leverage)
     leverage = max_leverage * combined_modifier
-    leverage = max(min_leverage, min(max_leverage, leverage))
+    leverage = max(min_leverage, min(max_allowed_leverage, leverage))
     
     size = size * leverage
     

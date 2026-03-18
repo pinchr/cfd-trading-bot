@@ -10,7 +10,7 @@ _circuit_breaker_since = None
 # Configuration
 MAX_CONSECUTIVE_LOSSES = 5
 MAX_DAILY_TRADES = 20
-MAX_DRAWDOWN_PERCENT = 10.0
+# MAX_DRAWDOWN_PERCENT is now loaded from db settings (default 20%)
 
 
 def check_circuit_breaker() -> Tuple[bool, str]:
@@ -23,6 +23,14 @@ def check_circuit_breaker() -> Tuple[bool, str]:
     global _circuit_breaker_triggered, _circuit_breaker_reason, _circuit_breaker_since
     
     from main import db, account
+    
+    # Get MAX_DRAWDOWN_PERCENT from settings (default 20%)
+    max_drawdown = 20.0
+    try:
+        setting = db.get_setting("MAX_DRAWDOWN_PCT", 20.0)
+        max_drawdown = float(setting) if setting else 20.0
+    except:
+        pass
     
     # Check if manually triggered
     if _circuit_breaker_triggered:
@@ -52,7 +60,7 @@ def check_circuit_breaker() -> Tuple[bool, str]:
         current = account.get("balance_usd", 3000)
         if peak > 0:
             drawdown = ((peak - current) / peak) * 100
-            if drawdown > MAX_DRAWDOWN_PERCENT:
+            if drawdown > max_drawdown:
                 trigger_circuit_breaker(f"Max drawdown exceeded: {drawdown:.1f}%")
                 return False, _circuit_breaker_reason  # FIXED: trading blocked
     except Exception:

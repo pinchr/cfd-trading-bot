@@ -142,7 +142,7 @@ export const ChartsTab: React.FC = () => {
       const chartData: ChartResponse[] = [];
       for (const instrument of instruments) {
         const response = await fetch(
-          `${apiUrl(`chart/${instrument.symbol}`)}?resolution=${selectedResolution}&count=24`,
+          `${apiUrl(`chart/${instrument.symbol}`)}?resolution=${selectedResolution}&count=50`,
         );
         if (response.ok) {
           const data = await response.json();
@@ -237,7 +237,7 @@ export const ChartsTab: React.FC = () => {
           : p
       ));
 
-      // Also update API in background
+      // Also update selectedPosition state to keep dragged line in sync       setSelectedPosition(prev => prev?.id === positionId ? {         ...prev,         [type === 'tp' ? 'take_profit' : 'stop_loss']: value       } : prev);       // Also update API in background
       try {
         const params = new URLSearchParams({
           [type === 'tp' ? 'take_profit' : 'stop_loss']: value.toString()
@@ -252,11 +252,11 @@ export const ChartsTab: React.FC = () => {
       }
     };
 
-    window.addEventListener("adjustPositionLine", handleLineAdjust as EventListener);
+    window.addEventListener("adjustPositionLine", handleLineAdjust as unknown as EventListener);
     
     return () => {
       clearInterval(interval);
-      window.removeEventListener("adjustPositionLine", handleLineAdjust as EventListener);
+      window.removeEventListener("adjustPositionLine", handleLineAdjust as unknown as EventListener);
     };
   }, [selectedResolution]);
 
@@ -334,7 +334,7 @@ export const ChartsTab: React.FC = () => {
                   <button
                     className="text-[11px] font-bold cursor-pointer hover:underline"
                     style={{ color: selectedSymbol === instrument.symbol ? "var(--accent)" : "var(--text-primary)" }}
-                    onClick={() => setSelectedSymbol(selectedSymbol === instrument.symbol ? null : instrument.symbol)}
+                    onClick={() => { const sym = selectedSymbol === instrument.symbol ? null : instrument.symbol; setSelectedSymbol(sym); setSelectedPosition(sym ? openPositions.find(p => p.symbol === sym) || null : null); }}
                     title="Click to show SL/TP lines"
                   >
                     {instrument.symbol}
@@ -436,7 +436,7 @@ export const ChartsTab: React.FC = () => {
                     showVolume={true}
                     showRSI={true}
                     trades={trades}
-                    selectedPosition={selectedSymbol === instrument.symbol ? openPositions.find(p => p.symbol === instrument.symbol) || null : null}
+                    selectedPosition={selectedSymbol === instrument.symbol ? (selectedPosition?.symbol === instrument.symbol ? selectedPosition : openPositions.find(p => p.symbol === instrument.symbol) || null) : null}
                   />
                 ) : (
                   <div

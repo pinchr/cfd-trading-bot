@@ -16,25 +16,25 @@ MINUTE=$(date +%M)
 
 case $MINUTE in
     00|15)
-        SYM="XAG"; STRAT="JSON:xag_v3_exp"; TF="5"
+        SYM="XAG"; STRAT="xag_v3_exp"; TF="5"
         ;;
     30|45)
-        SYM="XAG"; STRAT="JSON:xag_v3_exp"; TF="60"
+        SYM="XAG"; STRAT="xag_v3_exp"; TF="60"
         ;;
     05|20)
-        SYM="BTC"; STRAT="JSON:btc_v2_core"; TF="5"
+        SYM="BTC"; STRAT="btc_v2_core"; TF="5"
         ;;
     35|50)
-        SYM="BTC"; STRAT="JSON:btc_v2_core"; TF="60"
+        SYM="BTC"; STRAT="btc_v2_core"; TF="60"
         ;;
     10|25)
-        SYM="XAU"; STRAT="JSON:xau_v2_momentum"; TF="5"
+        SYM="XAU"; STRAT="xau_v2_momentum"; TF="5"
         ;;
     40|55)
-        SYM="XAU"; STRAT="JSON:xau_v2_momentum"; TF="60"
+        SYM="XAU"; STRAT="xau_v2_momentum"; TF="60"
         ;;
     *)
-        SYM="XAG"; STRAT="JSON:xag_v3_exp"; TF="5"
+        SYM="XAG"; STRAT="xag_v3_exp"; TF="5"
         ;;
 esac
 

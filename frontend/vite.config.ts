@@ -13,12 +13,12 @@ export default defineConfig({
     ],
     proxy: {
       "/cfd/api": {
-        target: "http://localhost:8001",
+        target: "http://localhost:8000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/cfd\/api/, "/api"),
       },
       "/api": {
-        target: "http://localhost:8001",
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },

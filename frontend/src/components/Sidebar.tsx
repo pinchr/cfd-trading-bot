@@ -146,10 +146,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
   const balance = account?.balance_usd ?? accountData?.balance_usd ?? 0;
   const equity = account?.equity_usd ?? accountData?.equity_usd ?? 0;
   const openTrades = account?.open_trades ?? accountData?.open_trades ?? 0;
-  const closedTrades = account?.closed_trades ?? 0;
-  const winRate = account?.win_rate ?? 0;
+  const closedTrades = account?.closed_trades ?? accountData?.closed_trades ?? 0;
+  const winRate = account?.win_rate ?? accountData?.win_rate ?? 0;
+  const winCount = account?.win_count ?? accountData?.win_count ?? 0;
+  const lossCount = account?.loss_count ?? accountData?.loss_count ?? 0;
   const totalPnl = account?.total_pnl_usd ?? 0;
   const accountMode = account?.mode ?? accountData?.mode ?? "simulate";
+  
+  // Calculate drawdown
+  const peakEquity = account?.peak_equity_usd ?? accountData?.peak_equity_usd ?? equity;
+  const drawdown = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
+  const showDrawdownAlert = drawdown > 5;
 
   useEffect(() => {
     const updateScan = () => {
@@ -207,6 +214,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
         </div>
       </div>
 
+      {/* Drawdown Alert */}
+      {showDrawdownAlert && (
+        <div 
+          className="p-3 mx-2 mt-2 rounded-md"
+          style={{ 
+            backgroundColor: "rgba(239, 68, 68, 0.15)", 
+            border: "1px solid rgba(239, 68, 68, 0.4)"
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚠️</span>
+            <div>
+              <div className="text-xs font-bold" style={{ color: "#ef4444" }}>
+                DRAWDOWN ALERT
+              </div>
+              <div className="text-[10px]" style={{ color: "#ef4444" }}>
+                {drawdown.toFixed(1)}% below peak (${peakEquity.toFixed(0)})
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Equity Section */}
       <div className="p-4" style={{ borderBottom: "1px solid var(--bg-tertiary)" }}>
         <div
@@ -247,12 +277,48 @@ export const Sidebar: React.FC<SidebarProps> = ({ accountData, broker = "simulat
           color="var(--text-muted)"
         />
         <StatBox
-          label="Win Rate"
-          value={`${winRate}%`}
-          color={
-            winRate >= 50 ? "var(--success)" : winRate > 0 ? "var(--danger)" : "var(--text-muted)"
-          }
+          label="Wins"
+          value={winCount.toString()}
+          color="var(--success)"
         />
+        <StatBox
+          label="Losses"
+          value={lossCount.toString()}
+          color="var(--danger)"
+        />
+        {/* Win Rate Donut */}
+        <div className="flex flex-col items-center justify-center p-2">
+          <div className="relative" style={{ width: 48, height: 48 }}>
+            <svg viewBox="0 0 36 36" className="w-12 h-12">
+              {/* Background circle */}
+              <circle
+                cx="18" cy="18" r="15.9"
+                fill="none"
+                stroke="var(--bg-tertiary)"
+                strokeWidth="3"
+              />
+              {/* Win arc */}
+              <circle
+                cx="18" cy="18" r="15.9"
+                fill="none"
+                stroke={winRate >= 50 ? "var(--success)" : "var(--danger)"}
+                strokeWidth="3"
+                strokeDasharray={`${winRate} ${100 - winRate}`}
+                strokeDashoffset="25"
+                transform="rotate(-90 18 18)"
+              />
+            </svg>
+            <div 
+              className="absolute inset-0 flex items-center justify-center text-[10px] font-bold"
+              style={{ color: winRate >= 50 ? "var(--success)" : "var(--danger)" }}
+            >
+              {winRate}%
+            </div>
+          </div>
+          <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Win Rate
+          </div>
+        </div>
         <StatBox
           label="Total P&L"
           value={`${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(0)}`}

@@ -20,9 +20,9 @@ INITIAL_BALANCE_USD = 3000.0
 
 INSTRUMENTS = {
     "XAU": {"name": "Gold", "multiplier": 1, "pip_size": 0.01, "lot_size": 0.003, "leverage": 20},
-    "XAG": {"name": "Silver", "multiplier": 1, "pip_size": 0.001, "lot_size": 0.003, "leverage": 20},
+    "XAG": {"name": "Silver", "multiplier": 1, "pip_size": 0.001, "lot_size": 0.003, "leverage": 10},
     "US100": {"name": "Nasdaq-100", "multiplier": 1, "pip_size": 0.01, "lot_size": 0.003, "leverage": 20},
-    "BTC": {"name": "Bitcoin", "multiplier": 1, "pip_size": 1.0, "lot_size": 0.001, "leverage": 5},
+    "BTC": {"name": "Bitcoin", "multiplier": 1, "pip_size": 1.0, "lot_size": 0.001, "leverage": 2},
 }
 
 
@@ -242,14 +242,22 @@ class AsyncSimulatedBroker(Broker):
         Logic:
         - Position has profit (unrealized_pnl > 0)
         - Current signal for that symbol is weaker than original by more than threshold
+        - OR current signal is too weak (|signal| < 0.05 = neutral zone)
         """
         if not self._dynamic_exit_enabled:
             return []
         
+        NEUTRAL_THRESHOLD = 0.05  # Signals between -0.05 and 0.05 are neutral
+        
         positions_to_close = []
         for pos in self.open_positions:
             symbol = pos.get("symbol")
+            direction = pos.get("direction", "buy")
             original_score = pos.get("original_signal_score", 0)
+            
+            # If no original score stored (old position), use current score as baseline
+            if original_score == 0 and symbol in current_signals:
+                original_score = current_signals[symbol]
             current_pnl = pos.get("unrealized_pnl_usd", 0)
             
             if current_pnl <= 0:
@@ -260,11 +268,23 @@ class AsyncSimulatedBroker(Broker):
                 
             current_score = current_signals[symbol]
             
-            # Check if signal decayed significantly
-            if original_score > 0:
-                decay_pct = (original_score - current_score) / original_score
-                if decay_pct > self._signal_decay_threshold:
+            # CLOSE if signal is in neutral zone (|signal| < 0.05)
+            if abs(current_score) < NEUTRAL_THRESHOLD:
+                positions_to_close.append(pos["id"])
+                print(f"[DYNAMIC-EXIT] {symbol} ({direction}) closing: signal now {current_score:.3f} (neutral zone)")
+                continue
+            
+            # For BUY positions: close if signal drops significantly
+            if direction == "buy" and original_score > 0:
+                if current_score < original_score * (1 - self._signal_decay_threshold):
                     positions_to_close.append(pos["id"])
+                    print(f"[DYNAMIC-EXIT] {symbol} closing: decay {(1 - current_score/original_score)*100:.1f}%")
+            
+            # For SELL positions: close if signal becomes less negative (weaker sell)
+            elif direction == "sell" and original_score < 0:
+                if current_score > original_score * (1 - self._signal_decay_threshold):  # less negative
+                    positions_to_close.append(pos["id"])
+                    print(f"[DYNAMIC-EXIT] {symbol} closing: sell signal weakened from {original_score:.3f} to {current_score:.3f}")
                     
         return positions_to_close
 

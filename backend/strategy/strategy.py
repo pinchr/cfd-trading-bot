@@ -41,6 +41,8 @@ class ScoreEngine:
             range_min, range_max = normalized_range[0], normalized_range[1]
             
             normalized = indicator.normalized_value(range_min, range_max)
+            if normalized is None:
+                continue
             # Add weighted score directly
             total_score += normalized * weight
             total_weight += weight

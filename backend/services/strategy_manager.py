@@ -79,7 +79,7 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float,
         if json_id in manager.strategies:
             strategy = manager.strategies[json_id]
             # Only print on first call (check if already printed this session)
-            if not getattr(analyze_with_new_strategy, '_logged', False):
+            if not getattr(analyze_with_new_strategy, "_logged", False):
                 print(f"[STRATEGY] Using requested JSON strategy: {json_id}")
                 analyze_with_new_strategy._logged = True
     else:
@@ -102,12 +102,12 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float,
     # Update indicators with latest candles
     for candle in candles[-50:]:  # Last 50 candles for warmup
         candle_data = {
-            'open': candle.get('open'),
-            'high': candle.get('high'),
-            'low': candle.get('low'),
-            'close': candle.get('close'),
-            'volume': candle.get('volume', 0),
-            'timestamp': candle.get('timestamp')
+            "open": candle.get("open"),
+            "high": candle.get("high"),
+            "low": candle.get("low"),
+            "close": candle.get("close"),
+            "volume": candle.get("volume", 0),
+            "timestamp": candle.get("timestamp"),
         }
         for ind in strategy.indicators.values():
             ind.update(candle_data)
@@ -117,12 +117,12 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float,
         return None
     current_candle = candles[-1]
     candle_data = {
-        'open': current_candle.get('open'),
-        'high': current_candle.get('high'),
-        'low': current_candle.get('low'),
-        'close': current_candle.get('close'),
-        'volume': current_candle.get('volume', 0),
-        'timestamp': current_candle.get('timestamp')
+        "open": current_candle.get("open"),
+        "high": current_candle.get("high"),
+        "low": current_candle.get("low"),
+        "close": current_candle.get("close"),
+        "volume": current_candle.get("volume", 0),
+        "timestamp": current_candle.get("timestamp"),
     }
 
     # Check if we have enough indicator data
@@ -179,7 +179,7 @@ def analyze_with_new_strategy(symbol: str, candles: list, current_price: float,
     exits = strategy.exit_engine.initialize_position(
         position_id=f"live_{symbol}",
         entry_price=current_price,
-        direction=direction
+        direction=direction,
     )
 
     return {

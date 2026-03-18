@@ -8,7 +8,7 @@
       "enabled": true,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
@@ -137,7 +137,7 @@
       "enabled": false,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
@@ -266,7 +266,7 @@
       "enabled": false,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
@@ -401,7 +401,7 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
@@ -520,7 +520,7 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
@@ -639,7 +639,7 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.5,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
