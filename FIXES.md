@@ -1,291 +1,178 @@
-# FIXES.md - CFD Trading Bot
+# CFD Trading Bot - Issues & Fixes Log
 
-## 🔧 Frontend Build Errors - Duplicate Identifiers (2026-02-24)
-
-**Status:** ✅ FIXED
-
-**Problem:** 
-```
-src/components/CandlestickChart.tsx(42,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(43,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(236,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(237,3): error TS2300: Duplicate identifier 'selectedPosition'.
-```
-
-**Fix:** Removed duplicate `selectedPosition` declarations in:
-- Interface (lines 42-43) - removed duplicate
-- Function params (lines 236-237) - removed duplicate
+## Date: 2026-03-04
 
 ---
 
-## 🔧 MainTab.tsx - Missing setSelectedSymbol (2026-02-24)
+## Issue 1: Critical Logic Error - RSI Momentum Signal Inversion
 
-**Status:** ✅ FIXED
+**Severity:** CRITICAL (Trading Logic Bug)
+**Component:** `backend/strategy/strategy.py` - Method: `_get_signal_rsi_momentum()`
+**Branch:** `march_2`
 
-**Problem:**
-```
-src/components/MainTab.tsx(441,59): error TS2552: Cannot find name 'setSelectedSymbol'. Did you mean 'selectedSymbol'?
-src/components/MainTab.tsx(441,77): error TS18047: 'pos' is possibly 'null'.
-```
+### The Problem
 
-**Fix:** Changed `setSelectedSymbol(pos.symbol)` to `onSymbolSelect(pos.symbol)` and added null check for `pos`.
+The momentum calculation logic was mathematically inverted, causing the bot to generate opposite trade signals. This directly led to losing trades.
 
----
-
-## 🔧 Fixer Cron Script (2026-02-24)
-
-**Status:** ✅ Added
-
-**Problem:** Need automated error checking every 30 minutes.
-
-**Solution:** Created `/Users/pinchr/dev/cfd-trading-bot/fixer.sh` that:
-- Checks if frontend (port 5173) and backend (port 8000) are running
-- Restarts services if not running
-- Checks backend API health
-- Runs TypeScript build to catch errors
-- Checks MongoDB connection
-- Logs to `/Users/pinchr/dev/cfd-trading-bot/logs/fixer.log`
-- Updates FIXES.md with any issues found
-
-**Cron:**
-```bash
-*/30 * * * * /Users/pinchr/dev/cfd-trading-bot/fixer.sh >> /Users/pinchr/dev/cfd-trading-bot/logs/fixer.log 2>&1
-```
-
----
-
-## 🔧 Auto-Trade Loop Fix (2026-02-23)
-
-**Status:** ✅ Fixed
-
-**Problem:** Pętla asyncio umierała po 1 iteracji - task scheduler gubił wątek po ciężkim `generate_signals()`.
-
-**Rozwiązanie:**
-- Dodano więcej logowania (`[DEBUG AUTO-TRADE]`, `[DEBUG] generate_signals set last_scan`)
-- To wymusiło flush buforów i naprawiło problem (observer effect)
-- Dodano cron restart co 30 min jako zabezpieczenie
-
-**Cron:**
-```bash
-*/30 * * * * launchctl stop ai.pinchr.cfd-bot && sleep 2 && launchctl start ai.pinchr.cfd-bot
-```
-
----
-
-## 🔧 XAG Score Validation Error (2026-02-23)
-
-**Status:** ✅ Fixed
-
-**Problem:** 
-```
-[ERROR] Error analyzing XAG: 2 validation errors for Signal
-score: Input should be less than or equal to 1 [type=less_than_equal, input_value=1.25...]
-```
-
-**Przyczyna:** `technical_score` w strategies.py przekraczał 1.0 po seasonality bias.
-
-**Fix:** Dodano clamping w 3 miejscach:
-1. `strategies.py` linia 564: `technical_score = max(-1, min(1, technical_score * 0.9 + seasonality_bias))`
-2. `strategies.py` linia 967: `technical_score = max(-1, min(1, technical_score * 0.85 + 0.15))`
-3. `main.py` linia ~1158: Clamp przy tworzeniu Signal
-
----
-
-## 🔧 Ngrok Autostart (2026-02-23)
-
-**Status
-
-**Problem:** Ngrok nie działał po restarcie:** ✅ Fixed.
-
-**Rozwiązanie:** Dodano launch agent:
-```xml
-~/Library/LaunchAgents/ai.pinchr.ngrok.plist
-```
-
----
-
-## 🔧 last_scan Not Updating in API (2026-02-23)
-
-**Status:** ✅ Fixed
-
-**Problem:** `last_scan` w API nie aktualizował się mimo że w DB był nowy.
-
-**Przyczyna:** Globalna zmienna `account` nie była aktualizowana po zapisie do DB.
-
-**Fix:** Dodano update globalnego `account["last_scan"]` w `generate_signals()`:
+**Incorrect Logic (Before):**
 ```python
-account["last_scan"] = datetime.utcnow().isoformat()
+elif mom_val is not None and mom_val < momentum_threshold:
+    direction = 'buy'  # Price DOWN = BUY (WRONG!)
+
+elif mom_val is not None and mom_val > momentum_threshold:
+    direction = 'sell'  # Price UP = SELL (WRONG!)
 ```
 
----
+### Root Cause
 
-## 🔧 Trend Reversal Early Exit (2026-02-23)
+The developer confused "momentum" direction with "price" direction. Momentum is the rate of price change:
+- Positive momentum = price is rising = BULLISH = BUY signal
+- Negative momentum = price is falling = BEARISH = SELL signal
 
-**Status:** ✅ Implemented
+### The Fix
 
-**Funkcja:** Zamykanie pozycji gdy RSI pokazuje overbought/oversold z zyskiem >0.5%.
-
-**Lokalizacja:** `broker_sim.py` w `_async_update_prices()`
-
-**Włączenie:**
 ```python
-from database import set_setting
-set_setting('TREND_REVERSAL_EXIT', 1, 'user')
+elif mom_val is not None and mom_val > momentum_threshold:
+    # Momentum > 0 means price is rising (bullish)
+    direction = 'buy'
+
+elif mom_val is not None and mom_val < momentum_threshold:
+    # Momentum < 0 means price is falling (bearish)
+    direction = 'sell'
 ```
 
-**Warunki:**
-- Pozycja musi mieć zysk > 0.5%
-- BUY: RSI > 70 (overbought) → zamyka
-- SELL: RSI < 30 (oversold) → zamyka
+### Impact
+
+Strategies affected (using `direction_mode: "rsi_momentum"`):
+- `btc_v3_exp`
+- `xau_v3_exp`
+- `xag_v3_exp`
+
+These strategies were generating REVERSED signals - buying when they should sell and vice versa.
 
 ---
 
-## 🔧 Scalp Strategies (2026-02-23)
+## Issue 2: Hardcoded Filters in Orchestrator (Architectural Issue)
 
-**Status:** ✅ Added
+**Severity:** MEDIUM (Architecture / Maintainability)
+**Component:** `backend/main.py` - `_analyze_single_symbol()`
+**Branch:** `march_2`
 
-**Nowe strategie:** `xau_scalp_trend`, `btc_scalp_trend`
+### The Problem
 
-**Parametry:**
-- TP: 2.5% (vs 5% w starych)
-- SL: 1.5% (vs 2%)
-- Trailing stop: WŁĄCZONY (aktywuje się przy 1% zysku)
-- Leverage: 10x (vs 20x)
-- Risk/trade: 1.5%
+Global market filters (Volatility and VIX) were hardcoded directly in the main execution loop, violating separation of concerns:
 
-**Użycie:**
-```bash
-curl -X POST "http://localhost:8000/api/strategy/XAU?strategy_id=JSON:xau_scalp_trend"
-curl -X POST "http://localhost:8000/api/strategy/BTC?strategy_id=JSON:btc_scalp_trend"
+```python
+# Hardcoded in main.py - line ~1143
+if atr_pct > 3.0:
+    return Signal(...)  # Returns NEUTRAL, blocking ALL trades
 ```
 
----
+Problems with this approach:
+1. **No flexibility** - All strategies used the same 3% ATR threshold
+2. **Violates SRP** - main.py should only orchestrate, not contain trading rules
+3. **Hard to test** - Cannot test different filter configurations independently
+4. **Strategy not source of truth** - The strategy should decide, not the orchestrator
 
-## 🔧 Backtest Issues (2026-02-23)
+### The Solution
 
-**Status:** ⚠️ Broken
+Refactored to make Strategy the single source of truth:
 
-**Problem:** Backtest zwraca 0 trades lub null results.
+1. **Added filter definitions to strategies.json:**
+   ```json
+   {
+     "id": "btc_v3_exp",
+     "filters": {
+       "volatility": {
+         "enabled": true,
+         "max_atr_percent": 3.0
+       },
+       "vix": {
+         "enabled": false,
+         "max_vix": 30
+       }
+     }
+   }
+   ```
 
-**Prawdopodobna przyczyna:**
-- Brak danych candles w formacie 5m
-- Przeciążony serwer przy backtest
-- Błąd w logice backtest
+2. **Created new filter classes in `backend/strategy/filters.py`:**
+   - `VolatilityFilter` - Checks if ATR% is within configured threshold
+   - `VixFilter` - Checks if VIX is below configured threshold
 
-**TODO:**
-- [ ] Naprawić pobieranie danych 5m
-- [ ] Dodać timeout dla backtest
-- [ ] Logowanie błędów
+3. **Updated FilterChain to include new filters:**
+   ```python
+   def check_all(self, candle, symbol, direction, atr_percent=None, vix_value=None):
+       # Now checks: volume, position_already_open, symbol_enabled, htf_trend, volatility, vix
+   ```
 
----
+4. **Updated `analyze_with_new_strategy()` to pass market data to filters:**
+   ```python
+   new_result = analyze_with_new_strategy(
+       symbol, candles, current_price, balance,
+       atr_percent=atr_pct,
+       vix_value=vix_data.get('value') if vix_data else None
+   )
+   ```
 
-## 📰 News System
+5. **Removed hardcoded filter from main.py:**
+   - Deleted the early-return logic when ATR% > 3%
+   - Now filters are checked inside the strategy
 
-**Status:** ✅ Working
+### Benefits of New Architecture
 
-- **Alpha Vantage NEWS_SENTIMENT API** - Real API calls
-- **Stocks (AAPL, TSLA, MSFT):** 4+ real articles z sentiment
-- **Futures (GC=F, SI=F, NQ=F):** Zwraca 0 (mniej newsów)
-- **Fallback:** Pusta lista gdy brak newsów (bez mock data)
-
----
-
-## ✨ Trading Mode (2026-02-20)
-
-**Status:** ✅ Done
-
-- **Glass Toggle** - Apple-style liquid glass design
-- **Broker Toggle** - Simulation 🎮 / IBKR 📈
-- **Mode Toggle** - Preview 👁 / Live ⚡
-- Persisted to localStorage
-
----
-
-## 🎯 TODO
-
-- [ ] Loading indicators + cache
-- [ ] Lewy panel - przebudowa
-- [ ] Symbol click = switch chart (bez modala)
-- [ ] Redis/RQ - kolejkowanie background tasks (alerts, news, cache)
-
----
-
-## 🔧 Feature: Per-Symbol Indicator Settings
-
-**Status:** ✅ Backend Done
-
-- [x] Backend: endpoint GET/POST /api/settings/indicators/{symbol}
-- [x] Backend: score liczy tylko włączone wskaźniki (z DB)
-- [x] Backend: strategia per symbol zapisana w DB
-- [ ] Frontend: toggle wskaźników na wykresie (lokalnie)
-- [ ] Frontend: Settings > Indicators per symbol
-
-**Dokumentacja:** `INDICATOR_SETTINGS_PLAN.md`
+| Before | After |
+|--------|-------|
+| main.py decides if market is too volatile | Strategy decides based on its config |
+| One threshold for all strategies | Each strategy has own thresholds |
+| Hard to change filter params | Change via JSON, no code changes |
+| Violates separation of concerns | Strategy is source of truth |
 
 ---
 
-## 🚀 Backtest Feature (2026-02-20)
+## Issue 3: Signal Generation Flow Complexity
 
-**Status:** ✅ Done
+**Severity:** LOW (Code Clarity)
+**Component:** Multiple files
 
-- [x] Backend: GET /api/backtest endpoint
-- [x] Logika: score-based direction (nie strategy.direction)
-- [x] Frontend: Backtest tab w Dashboard
-- [x] Parametry: symbol, resolution, days, min_score, initial_balance
-- [x] Wyniki: trades, metrics (P&L, win rate, max drawdown)
+### The Problem
 
-### Architektura wskaźników (2026-02-20)
+Signal generation has multiple paths that behave differently:
+- **New path:** `analyze_with_new_strategy()` → uses `strategy/strategy.py` ScoreEngine
+- **Legacy path:** `calculate_signal_score()` → uses `strategies.py` AdaptiveRegimeStrategy
 
-**IndicatorConfig** - klasa z polami:
-- `id`: str - np. "RSI", "MACD", "BB"
-- `enabled`: bool - czy włączony
-- `settings`: dict - np. {"period": 14, "overbought": 70}
+Both use different normalization and weighting, making it hard to predict behavior.
 
-**Strategy** - ma:
-- `default_indicators`: List[IndicatorConfig]
-- `get_enabled_indicators()` - zwraca listę IDs włączonych
-- `to_config(used_indicators)` - konwertuje do dict dla API
+### Recommendation
 
-**API** `/api/strategies` zwraca:
-```json
-{
-  "default_indicators": [
-    {"id": "RSI", "enabled": true, "settings": {"period": 14}},
-    {"id": "MACD", "enabled": false, "settings": {...}},
-    ...
-  ]
-}
-```
+Standardize on the JSON-based strategy path. Legacy strategies should be migrated to JSON format.
 
-**Test:** `curl "http://localhost:8000/api/backtest?symbol=XAU&resolution=60&days=30&min_score=0.1"`
+---
 
-**TODO:**
-- [x] Equity curve chart w UI
-- [x] Compare - uruchom kilka konfiguracji obok siebie (via Optimize)
-- [x] Optimize - automatyczne przetestowanie kombinacji i wybór najlepszej
-- [x] Adjust settings - edycja ustawień wskaźników (period, overbought, etc.)
-- [x] Save strategy - zapisz nową strategię z własną nazwą
-- [ ] Speed control (x1, x5, x10...)
-- [ ] Real-time updates podczas backtestu
+## Summary of Changes
 
-## 🔧 Frontend Build Error (2026-02-24 00:49:42)
-**Status:** ✅ Fixed (2026-02-24 08:16)
+### Files Modified
 
-**Problem:** src/components/CandlestickChart.tsx(42,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(43,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(236,3): error TS2300: Duplicate identifier 'selectedPosition'.
+| File | Change |
+|------|--------|
+| `backend/strategy/strategy.py` | Fixed inverted momentum logic, updated on_bar() to accept atr_percent and vix_value |
+| `backend/strategy/filters.py` | Added VolatilityFilter and VixFilter classes, updated FilterChain |
+| `backend/strategy/strategies.json` | Added volatility and vix filter configs to all strategies |
+| `backend/main.py` | Removed hardcoded volatility filter, updated analyze_with_new_strategy() call |
 
-**Full Output:**
-```
+### Testing Recommendations
 
-> polymarket-bot-frontend@0.1.0 build
-> tsc && vite build
+1. **Logic Verification:**
+   - [ ] Test with rising prices → should get BUY signal
+   - [ ] Test with falling prices → should get SELL signal
 
-src/components/CandlestickChart.tsx(42,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(43,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(236,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/CandlestickChart.tsx(237,3): error TS2300: Duplicate identifier 'selectedPosition'.
-src/components/MainTab.tsx(441,59): error TS2552: Cannot find name 'setSelectedSymbol'. Did you mean 'selectedSymbol'?
-src/components/MainTab.tsx(441,77): error TS18047: 'pos' is possibly 'null'.
-```
+2. **Filter Verification:**
+   - [ ] Set strategy max_atr_percent: 1.0, verify trades blocked when ATR% > 1%
+   - [ ] Set vix.enabled: true, max_vix: 20, verify trades blocked when VIX > 20
 
+3. **Regression:**
+   - [ ] Verify main.py runs without errors
+   - [ ] Verify existing strategies still work
+
+---
+
+*Log created: 2026-03-04*

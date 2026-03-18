@@ -20,9 +20,9 @@ INITIAL_BALANCE_USD = 3000.0
 
 INSTRUMENTS = {
     "XAU": {"name": "Gold", "multiplier": 1, "pip_size": 0.01, "lot_size": 0.003, "leverage": 20},
-    "XAG": {"name": "Silver", "multiplier": 1, "pip_size": 0.001, "lot_size": 0.003, "leverage": 20},
+    "XAG": {"name": "Silver", "multiplier": 1, "pip_size": 0.001, "lot_size": 0.003, "leverage": 10},
     "US100": {"name": "Nasdaq-100", "multiplier": 1, "pip_size": 0.01, "lot_size": 0.003, "leverage": 20},
-    "BTC": {"name": "Bitcoin", "multiplier": 1, "pip_size": 1.0, "lot_size": 0.001, "leverage": 5},
+    "BTC": {"name": "Bitcoin", "multiplier": 1, "pip_size": 1.0, "lot_size": 0.001, "leverage": 2},
 }
 
 
@@ -150,6 +150,35 @@ class AsyncSimulatedDataProvider:
                 candles = cached["candles"]
                 source = "cache"
 
+        # Add live candle with current price if we have data
+        if candles and len(candles) > 0:
+            try:
+                quote = await self.get_quote(symbol)
+                if quote and quote.get("price"):
+                    current_price = quote["price"]
+                    now = datetime.utcnow()
+                    # Create timestamp for current period
+                    resolution_minutes = int(resolution) if resolution != "D" else 1440
+                    minute_quant = (now.minute // resolution_minutes) * resolution_minutes
+                    period_start = now.replace(minute=minute_quant, second=0, microsecond=0)
+                    last_ts = candles[-1].get("timestamp", "")
+                    if last_ts:
+                        last_dt = datetime.strptime(last_ts.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+                        if period_start > last_dt:
+                            # Add live candle
+                            live_candle = {
+                                "timestamp": period_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "open": current_price,
+                                "high": current_price,
+                                "low": current_price,
+                                "close": current_price,
+                                "volume": 0
+                            }
+                            candles.append(live_candle)
+                            source = source + "_live" if source else "live"
+            except Exception as e:
+                print(f"[get_candles] Failed to add live candle: {e}")
+
         # Save to DB
         if candles and source not in ("db_history", "aggregated", "cache"):
             await asyncio.to_thread(db.store_candles, symbol, resolution, candles, source)
@@ -180,7 +209,7 @@ class AsyncSimulatedDataProvider:
 class AsyncSimulatedBroker(Broker):
     """Async paper-trading broker."""
 
-    def __init__(self, initial_balance: Optional[float] = None):
+    def __init__(self, initial_balance: Optional[float] = None, data_provider=None):
         self.account: Dict[str, Any] = db.load_account()
         # Allow overriding initial balance for testing
         if initial_balance is not None:
@@ -190,7 +219,8 @@ class AsyncSimulatedBroker(Broker):
             self.account["peak_equity_usd"] = initial_balance
         self.open_positions: List[Dict[str, Any]] = db.load_open_positions()
         self.closed_positions: List[Dict[str, Any]] = db.load_closed_positions()
-        self._data_provider = AsyncSimulatedDataProvider()
+        # Use external data_provider if provided, otherwise create mock
+        self._data_provider = data_provider if data_provider else AsyncSimulatedDataProvider()
         self._max_positions = 3  # Default max positions
         self._dynamic_exit_enabled = False
         self._signal_decay_threshold = 0.3  # Close if signal drops by 30%
@@ -212,14 +242,22 @@ class AsyncSimulatedBroker(Broker):
         Logic:
         - Position has profit (unrealized_pnl > 0)
         - Current signal for that symbol is weaker than original by more than threshold
+        - OR current signal is too weak (|signal| < 0.05 = neutral zone)
         """
         if not self._dynamic_exit_enabled:
             return []
         
+        NEUTRAL_THRESHOLD = 0.05  # Signals between -0.05 and 0.05 are neutral
+        
         positions_to_close = []
         for pos in self.open_positions:
             symbol = pos.get("symbol")
+            direction = pos.get("direction", "buy")
             original_score = pos.get("original_signal_score", 0)
+            
+            # If no original score stored (old position), use current score as baseline
+            if original_score == 0 and symbol in current_signals:
+                original_score = current_signals[symbol]
             current_pnl = pos.get("unrealized_pnl_usd", 0)
             
             if current_pnl <= 0:
@@ -230,11 +268,23 @@ class AsyncSimulatedBroker(Broker):
                 
             current_score = current_signals[symbol]
             
-            # Check if signal decayed significantly
-            if original_score > 0:
-                decay_pct = (original_score - current_score) / original_score
-                if decay_pct > self._signal_decay_threshold:
+            # CLOSE if signal is in neutral zone (|signal| < 0.05)
+            if abs(current_score) < NEUTRAL_THRESHOLD:
+                positions_to_close.append(pos["id"])
+                print(f"[DYNAMIC-EXIT] {symbol} ({direction}) closing: signal now {current_score:.3f} (neutral zone)")
+                continue
+            
+            # For BUY positions: close if signal drops significantly
+            if direction == "buy" and original_score > 0:
+                if current_score < original_score * (1 - self._signal_decay_threshold):
                     positions_to_close.append(pos["id"])
+                    print(f"[DYNAMIC-EXIT] {symbol} closing: decay {(1 - current_score/original_score)*100:.1f}%")
+            
+            # For SELL positions: close if signal becomes less negative (weaker sell)
+            elif direction == "sell" and original_score < 0:
+                if current_score > original_score * (1 - self._signal_decay_threshold):  # less negative
+                    positions_to_close.append(pos["id"])
+                    print(f"[DYNAMIC-EXIT] {symbol} closing: sell signal weakened from {original_score:.3f} to {current_score:.3f}")
                     
         return positions_to_close
 
@@ -424,28 +474,37 @@ class AsyncSimulatedBroker(Broker):
             return []
 
     async def _async_update_prices(self) -> List[Dict[str, Any]]:
-        """Async price update with auto-close - always gets fresh prices for real-time P&L."""
+        """Async price update with auto-close - uses quotes for real-time prices."""
+        print(f"[PRICE-UPDATE] Updating prices for {len(self.open_positions)} positions")
         auto_closed = []
         to_close = []
 
         for pos in self.open_positions:
             symbol = pos["symbol"]
 
-            # Always get fresh price from candles for real-time P&L updates
+            # Use quote API for real-time prices (not candles which may be stale)
             price = None
             try:
-                candles = await self._data_provider.get_candles(symbol, "60", 1)
-                if candles and len(candles) > 0:
-                    price = candles[-1]["close"]
-            except Exception:
-                pass
-
-            # Fallback to quote if candles unavailable
-            if price is None:
                 quote = await self._data_provider.get_quote(symbol)
-                if not quote:
-                    continue
-                price = quote["price"]
+                if quote and "price" in quote:
+                    price = quote["price"]
+                    print(f"[PRICE-UPDATE] {symbol}: got quote price = {price}")
+            except Exception as e:
+                print(f"[PRICE-UPDATE] Error getting quote for {symbol}: {e}")
+
+            # Fallback to candles if quote unavailable
+            if price is None:
+                try:
+                    candles = await self._data_provider.get_candles(symbol, "60", 1)
+                    if candles and len(candles) > 0:
+                        price = candles[-1]["close"]
+                except Exception as e:
+                    print(f"[PRICE-UPDATE] Error getting candles for {symbol}: {e}")
+
+            if price is None:
+                print(f"[PRICE-UPDATE] Could not get price for {symbol}")
+                continue
+
             pos_leverage = pos.get("leverage", 1)
             if pos["direction"] == "buy":
                 pnl = (price - pos["entry_price"]) * pos["size"] * pos_leverage

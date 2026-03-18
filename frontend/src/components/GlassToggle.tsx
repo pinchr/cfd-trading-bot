@@ -218,3 +218,112 @@ export const BrokerToggle: React.FC<BrokerToggleProps> = ({ value, onChange }) =
     </div>
   );
 };
+
+interface DynamicPositionsToggleProps {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}
+
+export const DynamicPositionsToggle: React.FC<DynamicPositionsToggleProps> = ({ value, onChange }) => {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        padding: "10px 12px",
+        background: "var(--bg-secondary)",
+        borderRadius: "0",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "10px",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "var(--text-muted)",
+          fontWeight: 600,
+        }}
+      >
+        Dynamic Positions
+      </span>
+      
+      <div
+        style={{
+          position: "relative",
+          display: "flex",
+          background: "var(--bg-tertiary)",
+          borderRadius: "0",
+          border: "1px solid var(--border)",
+          width: "100%",
+          height: "28px",
+          cursor: "pointer",
+        }}
+        onClick={() => onChange(!value)}
+      >
+        {/* Sliding background */}
+        <div
+          style={{
+            position: "absolute",
+            top: "0",
+            left: value ? "50%" : "0",
+            width: "50%",
+            height: "100%",
+            background: value ? "#22c55e" : "#6b7280",
+            transition: "all 0.15s ease-out",
+            zIndex: 0,
+          }}
+        />
+        
+        {/* Left option - Off */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "50%",
+            height: "100%",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: 500,
+              color: !value ? "white" : "var(--text-muted)",
+              transition: "color 0.15s ease",
+            }}
+          >
+            Off
+          </span>
+        </div>
+        
+        {/* Right option - On */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "50%",
+            height: "100%",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: 500,
+              color: value ? "white" : "var(--text-muted)",
+              transition: "color 0.15s ease",
+            }}
+          >
+            On
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};

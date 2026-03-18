@@ -63,8 +63,12 @@ export const Dashboard: React.FC = () => {
   const [accountData, setAccountData] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
-  const [broker, setBroker] = useState<"simulation" | "ibkr">("simulation");
-  const [autoTrade, setAutoTrade] = useState<boolean>(false);
+  const [broker, setBroker] = useState<"simulation" | "ibkr">(() => {
+    return (localStorage.getItem("cfd_broker") as "simulation" | "ibkr") || "simulation";
+  });
+  const [autoTrade, setAutoTrade] = useState<boolean>(() => {
+    return localStorage.getItem("cfd_autoTrade") === "true";
+  });
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestResults, setBacktestResults] = useState<any>(null);
   const [strategies, setStrategies] = useState<any[]>([]);
@@ -111,10 +115,12 @@ export const Dashboard: React.FC = () => {
         const res = await fetch(apiUrl("trading-mode"));
         if (res.ok) {
           const data = await res.json();
-          setBroker(data.broker);
-          setAutoTrade(data.autoTrade);
-          localStorage.setItem("cfd_broker", data.broker);
-          localStorage.setItem("cfd_autoTrade", String(data.autoTrade));
+          // Always use API value to sync state
+          setBroker(data.mode || "simulation");
+          setAutoTrade(data.auto_trade || false);
+          // Save to localStorage for persistence
+          localStorage.setItem("cfd_broker", data.mode || "simulation");
+          localStorage.setItem("cfd_autoTrade", String(data.auto_trade || false));
         }
         
         // Strategies with indicators
@@ -490,6 +496,11 @@ export const Dashboard: React.FC = () => {
                     id="backtest-resolution"
                     className="p-2 rounded text-sm"
                     style={{ backgroundColor: "var(--bg-tertiary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                    onChange={() => {
+                      // Auto-refresh chart when resolution changes
+                      const btn = document.getElementById("run-backtest-btn") as HTMLButtonElement;
+                      if (btn) btn.click();
+                    }}
                   >
                     <option value="5">5m</option>
                     <option value="15">15m</option>
@@ -772,16 +783,16 @@ export const Dashboard: React.FC = () => {
                         <div className="flex flex-wrap gap-4 text-sm">
                           <div>
                             <span style={{ color: "var(--text-muted)" }}>Strategy:</span>{" "}
-                            <span style={{ color: "var(--text-primary)" }}>{backtestResults.config?.strategy}</span>
+                            <span style={{ color: "var(--text-primary)" }}>{backtestResults.config?.display_name || backtestResults.config?.id}</span>
                           </div>
                           <div>
                             <span style={{ color: "var(--text-muted)" }}>Used:</span>{" "}
                             <span style={{ color: "var(--accent)" }}>{(backtestResults.config?.used_indicators || []).join(", ")}</span>
                           </div>
-                          {backtestResults.config?.default_indicators && backtestResults.config?.used_indicators?.join(",") !== backtestResults.config?.default_indicators?.join(",") && (
+                          {backtestResults.config?.default_indicators && backtestResults.config?.used_indicators?.join(",") !== backtestResults.config?.default_indicators?.map((ind: any) => ind.id).join(",") && (
                             <div>
                               <span style={{ color: "var(--text-muted)" }}>Default:</span>{" "}
-                              <span style={{ color: "var(--text-muted)" }}>{backtestResults.config?.default_indicators?.join(", ")}</span>
+                              <span style={{ color: "var(--text-muted)" }}>{backtestResults.config?.default_indicators?.map((ind: any) => ind.id).join(", ")}</span>
                             </div>
                           )}
                         </div>

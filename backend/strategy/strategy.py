@@ -24,6 +24,7 @@ class ScoreEngine:
         
         Returns:
             Score value (positive = buy, negative = sell)
+            Range: [-1, 1] after normalization
         """
         total_score = 0.0
         total_weight = 0.0
@@ -40,10 +41,13 @@ class ScoreEngine:
             range_min, range_max = normalized_range[0], normalized_range[1]
             
             normalized = indicator.normalized_value(range_min, range_max)
+            if normalized is None:
+                continue
+            # Add weighted score directly
             total_score += normalized * weight
             total_weight += weight
         
-        # Normalize by actual weight used
+        # Normalize by total weight to get score in [-1, 1] range
         if total_weight > 0:
             total_score = total_score / total_weight
         
@@ -76,10 +80,15 @@ class ScoreEngine:
     def _get_signal_rsi_momentum(self) -> Optional[str]:
         """
         v3 logic: Direction based on RSI/Momentum, score as quality filter.
-        
-        BUY: RSI < 40 (oversold) OR Momentum < 0 (downtrend)
-        SELL: RSI > 60 (overbought) OR Momentum > 0 (uptrend)
-        
+
+        BUY signals (price expected to go UP):
+        - RSI < rsi_oversold (e.g., < 40) = oversold, potential bounce
+        - Momentum > 0 = price trending upward (momentum is positive % change)
+
+        SELL signals (price expected to go DOWN):
+        - RSI > rsi_overbought (e.g., > 60) = overbought, potential drop
+        - Momentum < 0 = price trending downward (momentum is negative % change)
+
         Score is used as quality filter - must exceed min_score.
         """
         # Get direction config
@@ -87,32 +96,36 @@ class ScoreEngine:
         rsi_oversold = dir_config.get('rsi_oversold', 40)
         rsi_overbought = dir_config.get('rsi_overbought', 60)
         momentum_threshold = dir_config.get('momentum_threshold', 0)
-        
+
         # Get indicator values
         rsi = self.indicators.get('RSI')
         momentum = self.indicators.get('MOMENTUM')
-        
+
         rsi_val = rsi.value() if rsi else None
         mom_val = momentum.value() if momentum else None
-        
+
         # Determine direction
+        # Priority: RSI signal first, then momentum
         direction = None
-        
-        # BUY signals: RSI oversold OR momentum negative
+
+        # BUY signals: RSI oversold (potential bounce) OR momentum positive (uptrend)
         if rsi_val is not None and rsi_val < rsi_oversold:
             direction = 'buy'
-        elif mom_val is not None and mom_val < momentum_threshold:
-            direction = 'buy'
-        
-        # SELL signals: RSI overbought OR momentum positive
-        if rsi_val is not None and rsi_val > rsi_overbought:
-            direction = 'sell'
         elif mom_val is not None and mom_val > momentum_threshold:
-            direction = 'sell'
-        
+            # Momentum > 0 means price is rising (bullish)
+            direction = 'buy'
+
+        # SELL signals: RSI overbought OR momentum negative - ONLY if not already buy
+        if direction is None:  # Only check sell if not already buy
+            if rsi_val is not None and rsi_val > rsi_overbought:
+                direction = 'sell'
+            elif mom_val is not None and mom_val < momentum_threshold:
+                # Momentum < 0 means price is falling (bearish)
+                direction = 'sell'
+
         if direction is None:
             return None
-        
+
         # Apply score as quality filter
         score = abs(self.compute_score())
         if score >= self.min_score:
@@ -139,9 +152,9 @@ class Strategy:
         self.id = config.get('id')
         self.name = config.get('name')
         self.symbol = config.get('symbol')
-        self.timeframe = config.get('timeframe', '5m')
+        self.timeframe = config.get('timeframe')
         self.enabled = config.get('enabled', True)
-        self.trade_direction = config.get('trade_direction', 'long_only')
+        self.trade_direction = config.get('trade_direction')
         
         # Components
         self.indicators = indicators
@@ -171,7 +184,8 @@ class Strategy:
         # State
         self.is_initialized = False
     
-    def on_bar(self, candle: dict, balance: float, current_exposure: float = 0, open_risk: float = 0) -> Optional[dict]:
+    def on_bar(self, candle: dict, balance: float, current_exposure: float = 0, open_risk: float = 0, 
+               atr_percent: float = None, vix_value: float = None) -> Optional[dict]:
         """
         Process new bar and generate signals
         
@@ -180,6 +194,8 @@ class Strategy:
             balance: Current account balance
             current_exposure: Current position notional
             open_risk: Sum of risk for open positions
+            atr_percent: ATR percent for volatility filter
+            vix_value: Current VIX value for VIX filter
         
         Returns:
             Trade order dict or None
@@ -192,8 +208,12 @@ class Strategy:
         if not self._has_sufficient_data():
             return None
         
-        # Check filters first
-        filters_passed, failed = self.filters.check_all(candle, self.symbol, 'long')
+        # Check filters first (now includes volatility and VIX from strategy config)
+        filters_passed, failed = self.filters.check_all(
+            candle, self.symbol, 'long', 
+            atr_percent=atr_percent, 
+            vix_value=vix_value
+        )
         if not filters_passed:
             return None
         

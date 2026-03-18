@@ -36,6 +36,6 @@ def create_broker(data_provider: DataProvider = None) -> Broker:
             data_provider = IBKRDataProvider()
         return IBKRBroker(data_provider)
     else:
-        from broker_sim import SimulatedBroker
+        from broker_sim import AsyncSimulatedBroker
 
-        return SimulatedBroker()
+        return AsyncSimulatedBroker(data_provider=data_provider)

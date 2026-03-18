@@ -7,6 +7,12 @@ Built to run from any device (iPhone, iPad, laptop) via a hosted web UI with a m
 ## Features
 
 - **Signal Engine**: Regime-adaptive scoring (trending vs ranging markets) using RSI, MACD, Bollinger Bands, ADX, StochRSI, SMA crossover, volume profile, and momentum
+- **Multi-Timeframe (HTF) Filters**: 30m/1H/4H confirmation before entering trades
+- **Strategy System**: 
+  - Python-based `AdaptiveRegimeStrategy` with configurable weights
+  - JSON-based custom strategies in `strategies.json`
+  - Per-symbol min_score and agreement thresholds
+- **Backtesting**: Built-in backtester with configurable period, min_score, and win rate tracking
 - **Risk Management**: 2% max risk per trade, ATR-based position sizing, circuit breaker at 20% drawdown, max 3 concurrent positions
 - **Candlestick Charts**: Custom SVG OHLCV charts with Bollinger Bands, SMA 20/50, MACD, RSI, and volume panels. Multiple timeframes (1m, 5m, 15m, 30m, 1H, 1D). Horizontally scrollable on mobile for full readability
 - **News Sentiment**: Multi-source news with keyword-based sentiment scoring (Brave Search, Alpha Vantage NEWS_SENTIMENT, web scraping fallback)
@@ -65,7 +71,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env and add your ALPHA_VANTAGE_API_KEY
 
-# 4. Start backend
+# 4. Start backend (port 8001 - IMPORTANT!)
 python main.py --port 8001
 
 # 5. Frontend (new terminal)
@@ -73,6 +79,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+**IMPORTANT**: Backend always runs on port 8001 (not 8000).
 
 Open http://localhost:5173 — the frontend proxies `/api` to the backend automatically.
 
@@ -86,7 +94,7 @@ Create `backend/.env` based on `backend/.env.example`:
 ALPHA_VANTAGE_API_KEY=your_key_here
 
 # RECOMMENDED - free at mongodb.com/atlas (512MB free)
-# Without this, all data lives in memory and is lost on restart
+# Without this, all data lives in memory and are lost on restart
 MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/
 MONGO_DB=cfd_trading_bot
 
@@ -103,6 +111,58 @@ BROKER_TYPE=sim              # "sim" (default) or "ibkr"
 # IBKR_HOST=127.0.0.1
 # IBKR_PORT=7497             # 7497=paper, 7496=live
 # IBKR_CLIENT_ID=1
+```
+
+## Strategy System
+
+### Python Strategies (`strategies.py`)
+
+Built-in `AdaptiveRegimeStrategy` with regime detection:
+
+```python
+# Detects market regime via ADX
+is_trending = adx_value > 25
+
+# Adjusts indicator weights dynamically:
+# - Trending: higher weight on MACD, SMA cross, momentum
+# - Ranging: higher weight on RSI, Bollinger Bands mean-reversion
+```
+
+### JSON Strategies (`strategies.json`)
+
+Custom strategies defined in JSON with:
+
+```json
+{
+  "name": "BTC Scalp Trend",
+  "timeframe": "5m",
+  "min_score": 0.05,
+  "indicators": [
+    {"name": "RSI", "weight": 0.5, "normalized_range": [0, 1]},
+    {"name": "MACD", "weight": 1.0, "normalized_range": [-1, 1]},
+    {"name": "MOMENTUM", "weight": 1.5, "normalized_range": [-1, 1]}
+  ],
+  "htf_filters": [
+    {"indicator": "RSI", "timeframe": "30m", "direction": "same"}
+  ]
+}
+```
+
+### Backtest Configuration
+
+Edit `INSTRUMENT_CONFIG` in `backtester.py`:
+
+```python
+INSTRUMENT_CONFIG = {
+    "XAU": {"min_score": 0.05, "min_agreement": 2, "leverage": 20},
+    "XAG": {"min_score": 0.05, "min_agreement": 2, "leverage": 20},
+    "BTC": {"min_score": 0.05, "min_agreement": 2, "leverage": 5},
+}
+```
+
+Run backtest via API:
+```bash
+curl "http://localhost:8001/api/backtest?symbol=BTC&days=14"
 ```
 
 ## Deploy to Render (Free)
@@ -163,14 +223,26 @@ Browser (any device)
     v
 [FastAPI Backend]
     |-- /api/signals       -> Signal engine (regime-adaptive scoring)
-    |-- /api/chart/:sym    -> Candlestick OHLCV data
-    |-- /api/quote/:sym    -> Current price quote
-    |-- /api/trade/open    -> Open position via broker
-    |-- /api/trade/close   -> Close position via broker
-    |-- /api/account       -> Account balance & stats
-    |-- /api/news/:sym     -> News sentiment per symbol
-    |-- /api/alerts        -> Alert configuration & history
-    |-- /*                 -> Serves React frontend (SPA)
+    |-- /api/chart/:sym   -> Candlestick OHLCV data
+    |-- /api/quote/:sym   -> Current price quote
+    |-- /api/trade/open   -> Open position via broker
+    |-- /api/trade/close  -> Close position via broker
+    |-- /api/account      -> Account balance & stats
+    |-- /api/backtest     -> Run historical backtest
+    |-- /api/news/:sym    -> News sentiment per symbol
+    |-- /api/alerts       -> Alert configuration & history
+    |-- /*                -> Serves React frontend (SPA)
+    |
+    +-- Services Layer
+    |     |-- trading_engine.py   -> Main trading logic + auto_trade_loop
+    |     |-- signal_generator.py -> Technical indicator calculations
+    |     |-- strategy_manager.py -> Strategy loading (Python + JSON)
+    |     |-- market_data.py      -> Price caching
+    |
+    +-- Strategy System
+    |     |-- strategies.py        -> AdaptiveRegimeStrategy (Python)
+    |     |-- strategies.json      -> Custom JSON strategies
+    |     |-- backtester.py       -> Backtesting engine
     |
     +-- DataProvider (quotes + candles)
     |     Alpha Vantage -> Finnhub -> synthetic fallback
@@ -183,8 +255,23 @@ Browser (any device)
     |     ibkr: Real orders via IB Gateway/TWS
     |
     +-- MongoDB Atlas
-          account, trades, signal_cache
+          account, trades, positions, signal_cache
 ```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/signals` | GET | Generate trading signals for all symbols |
+| `/api/chart/{symbol}` | GET | Get OHLCV candlestick data |
+| `/api/quote/{symbol}` | GET | Current price quote |
+| `/api/account` | GET | Account balance, equity, stats |
+| `/api/positions` | GET | Open positions |
+| `/api/trade/open` | POST | Open new position |
+| `/api/trade/close` | POST | Close existing position |
+| `/api/backtest` | GET | Run backtest on historical data |
+| `/api/news/{symbol}` | GET | News with sentiment for symbol |
+| `/api/health` | GET | Health check |
 
 ## Adding a New Broker
 
@@ -199,7 +286,7 @@ No changes to `main.py` needed.
 ```
 Trdr/
   backend/
-    main.py                # FastAPI app + signal engine
+    main.py                # FastAPI app + routes
     broker.py              # Abstract Broker + DataProvider interfaces
     broker_sim.py          # Simulated paper trading
     broker_ibkr.py         # Interactive Brokers implementation
@@ -211,6 +298,14 @@ Trdr/
     news_client.py         # Brave Search news client
     finnhub.py             # Finnhub API integration
     realistic_prices.py    # Synthetic price fallback generator
+    strategies.py          # AdaptiveRegimeStrategy + strategy registry
+    strategies.json        # Custom JSON strategies
+    backtester.py          # Backtesting engine
+    services/
+      trading_engine.py    # Main auto-trading loop
+      signal_generator.py # Indicator calculations
+      strategy_manager.py  # Strategy loading & analysis
+      market_data.py       # Price caching
     models.py              # Pydantic models
     .env.example           # Environment variable template
   frontend/

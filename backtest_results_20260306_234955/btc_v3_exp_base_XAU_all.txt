@@ -1,0 +1,46 @@
+[INFO] MONGO_URI set from CLI
+
+============================================================
+  BACKTEST RUNNER
+  Config: base
+  Symbols: ['XAU']
+  Periods: ['all']
+  Resolutions: ['60']
+============================================================
+
+  Running backtest: base | all | 60m
+[DB] Checking MongoDB config...
+[DB] MONGO_URI set: True (length: 157)
+[DB] MONGO_DB: cfd_trading_bot
+[DB] Connecting to MongoDB...
+[DB] ✅ MongoDB connected successfully
+[DB] ✅ MongoDB connected successfully to database: cfd_trading_bot
+[DB] ✅ Write access confirmed
+    XAU 60: 5734 candles from backtest_cache (yahoo)
+[STRATEGY] Loaded 8 strategies from JSON
+[BACKTEST] Using unified strategy: base
+  [DB] Saved to backtest_results: bt_20260306_235057_base
+  [CSV] Saved 1 rows to /Users/pinchr/dev/cfd-trading-bot/backtests/backtests_2026-03-06.csv
+  [CSV] Appended 1 new rows to /Users/pinchr/dev/cfd-trading-bot/backtests/backtests_all.csv
+  [INFO] Excluded 3568 rows with bad/incomplete data from ranking
+
+============================================================
+  SUMMARY
+============================================================
+
+  Total configs tested: 27
+  Total runs: 165
+
+  🏆 Top 3 Configs (by avg return):
+    1. no_rsi: +2830.71% avg | 30d: $-475.11 | 60d: $-524.83 | 2216 trades
+    2. dynamic_on: +2631.24% avg | 30d: $-381.34 | 60d: $-412.66 | 2271 trades
+    3. base: +2166.47% avg | 30d: $-407.72 | 60d: $-434.55 | 2290 trades
+
+  This run:
+
+  Config               Period     Res   Trades  Win%    Return     DD%     PF    
+  ---------------------------------------------------------------------------
+  base                 all        60    0         0.0%      +0.0%
+
+  Results saved to: /Users/pinchr/dev/cfd-trading-bot/backtests/backtests_2026-03-06.csv
+  All-time results: /Users/pinchr/dev/cfd-trading-bot/backtests/backtests_all.csv

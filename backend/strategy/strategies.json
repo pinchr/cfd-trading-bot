@@ -8,11 +8,11 @@
       "enabled": true,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.01,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -28,7 +28,7 @@
           },
           {
             "name": "MOMENTUM",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -68,7 +68,16 @@
             "value": 50
           },
           "short_condition": null
-        }
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
+        },
+        "vix_enabled": false
       },
       "risk": {
         "risk_per_trade_pct": 2.0,
@@ -128,11 +137,11 @@
       "enabled": false,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.01,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -148,7 +157,7 @@
           },
           {
             "name": "MOMENTUM",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -188,7 +197,16 @@
             "value": 50
           },
           "short_condition": null
-        }
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
+        },
+        "vix_enabled": false
       },
       "risk": {
         "risk_per_trade_pct": 2.0,
@@ -248,11 +266,11 @@
       "enabled": false,
       "trade_direction": "long_only",
       "score": {
-        "min_score": 0.01,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -268,7 +286,7 @@
           },
           {
             "name": "MOMENTUM",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -308,7 +326,16 @@
             "value": 50
           },
           "short_condition": null
-        }
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
+        },
+        "vix_enabled": false
       },
       "risk": {
         "risk_per_trade_pct": 2.0,
@@ -374,11 +401,11 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.05,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -386,7 +413,7 @@
           },
           {
             "name": "MOMENTUM",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -418,7 +445,16 @@
             "value": 50
           },
           "short_condition": null
-        }
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
+        },
+        "vix_enabled": false
       },
       "risk": {
         "risk_per_trade_pct": 2.0,
@@ -484,11 +520,11 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.05,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -496,7 +532,7 @@
           },
           {
             "name": "MOMENTUM",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -528,7 +564,16 @@
             "value": 50
           },
           "short_condition": null
-        }
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
+        },
+        "vix_enabled": false
       },
       "risk": {
         "risk_per_trade_pct": 2.0,
@@ -594,11 +639,11 @@
         "momentum_threshold": 0
       },
       "score": {
-        "min_score": 0.05,
+        "min_score": 0.15,
         "indicators": [
           {
             "name": "RSI",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -606,7 +651,7 @@
           },
           {
             "name": "MOMENTUM",
-            "weight": 0.5,
+            "weight": 2.0,
             "normalized_range": [
               -1,
               1
@@ -638,7 +683,16 @@
             "value": 50
           },
           "short_condition": null
-        }
+        },
+        "volatility": {
+          "enabled": true,
+          "max_atr_percent": 3.0
+        },
+        "vix": {
+          "enabled": false,
+          "max_vix": 30
+        },
+        "vix_enabled": false
       },
       "risk": {
         "risk_per_trade_pct": 2.0,

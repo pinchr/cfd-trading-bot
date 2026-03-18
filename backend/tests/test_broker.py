@@ -21,29 +21,29 @@ from broker_sim import SimulatedBroker, SimulatedDataProvider
 class TestBrokerInitialization:
     """Test broker initialization."""
 
-    def test_broker_initialization(self):
+    def test_broker_initialization(self, fresh_broker):
         """Test that SimulatedBroker initializes correctly."""
-        broker = SimulatedBroker()
+        broker = fresh_broker
         
         assert broker is not None
         assert hasattr(broker, 'open_positions')
         assert hasattr(broker, 'closed_positions')
         assert hasattr(broker, 'account')
 
-    def test_broker_initial_balance(self):
+    def test_broker_initial_balance(self, fresh_broker):
         """Test initial balance is set correctly."""
-        broker = SimulatedBroker()
+        broker = fresh_broker
         
-        assert broker.account["balance_usd"] == 3000.0  # Default initial balance
+        assert broker.account["balance_usd"] == 10000.0  # Fixture sets this
 
 
 class TestPositionOpening:
     """Test opening positions."""
 
     @pytest.mark.asyncio
-    async def test_open_buy_position(self):
+    async def test_open_buy_position(self, fresh_broker):
         """Test opening a BUY position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.open_position(
             symbol="XAU",
@@ -61,9 +61,9 @@ class TestPositionOpening:
         assert result["position"]["size"] == 0.01
 
     @pytest.mark.asyncio
-    async def test_open_sell_position(self):
+    async def test_open_sell_position(self, fresh_broker):
         """Test opening a SELL position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.open_position(
             symbol="XAG",
@@ -79,9 +79,9 @@ class TestPositionOpening:
         assert result["position"]["size"] == 0.1
 
     @pytest.mark.asyncio
-    async def test_open_position_updates_balance(self):
+    async def test_open_position_updates_balance(self, fresh_broker):
         """Test that opening position updates available balance."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         initial_available = broker.account["available_usd"]
         
@@ -102,9 +102,9 @@ class TestPositionClosing:
     """Test closing positions."""
 
     @pytest.mark.asyncio
-    async def test_close_position(self):
+    async def test_close_position(self, fresh_broker):
         """Test closing an existing position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # First open a position
         open_result = await broker.open_position(
@@ -126,9 +126,9 @@ class TestPositionClosing:
         assert "pnl_usd" in close_result["position"]
 
     @pytest.mark.asyncio
-    async def test_close_profitable_position(self):
+    async def test_close_profitable_position(self, fresh_broker):
         """Test closing a profitable position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open at 2000
         open_result = await broker.open_position(
@@ -148,9 +148,9 @@ class TestPositionClosing:
         assert close_result["position"]["pnl_usd"] > 0
 
     @pytest.mark.asyncio
-    async def test_close_losing_position(self):
+    async def test_close_losing_position(self, fresh_broker):
         """Test closing a losing position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         open_result = await broker.open_position(
             symbol="XAU",
@@ -173,9 +173,9 @@ class TestEdgeCases:
     """Test edge cases in position management."""
 
     @pytest.mark.asyncio
-    async def test_open_position_insufficient_margin(self):
+    async def test_open_position_insufficient_margin(self, fresh_broker):
         """Test opening position with insufficient margin."""
-        broker = SimulatedBroker(initial_balance=100.0)
+        broker = fresh_broker
         
         # Try to open position requiring more margin than available
         result = await broker.open_position(
@@ -191,9 +191,9 @@ class TestEdgeCases:
         assert "error" in result or broker.account["available_usd"] >= 0
 
     @pytest.mark.asyncio
-    async def test_open_position_negative_size(self):
+    async def test_open_position_negative_size(self, fresh_broker):
         """Test opening position with negative size."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.open_position(
             symbol="XAU",
@@ -208,9 +208,9 @@ class TestEdgeCases:
         assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_open_position_zero_size(self):
+    async def test_open_position_zero_size(self, fresh_broker):
         """Test opening position with zero size."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.open_position(
             symbol="XAU",
@@ -225,18 +225,18 @@ class TestEdgeCases:
         assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_close_nonexistent_position(self):
+    async def test_close_nonexistent_position(self, fresh_broker):
         """Test closing a position that doesn't exist."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.close_position("nonexistent_id_12345")
         
         assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_close_already_closed_position(self):
+    async def test_close_already_closed_position(self, fresh_broker):
         """Test closing an already closed position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open and close
         open_result = await broker.open_position(
@@ -260,9 +260,9 @@ class TestEdgeCases:
 class TestAccountManagement:
     """Test account-related functionality."""
 
-    def test_get_account(self):
+    def test_get_account(self, fresh_broker):
         """Test getting account information."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         account = broker.get_account()
         
@@ -271,9 +271,9 @@ class TestAccountManagement:
         assert "available_usd" in account
         assert account["balance_usd"] == 10000.0
 
-    def test_get_account_with_positions(self):
+    def test_get_account_with_positions(self, fresh_broker):
         """Test account with open positions."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Run async to open position
         asyncio.run(broker.open_position(
@@ -294,9 +294,9 @@ class TestAccountManagement:
         assert "positions" in account or "open_trades" in account
         assert len(open_positions) > 0
 
-    def test_get_open_positions(self):
+    def test_get_open_positions(self, fresh_broker):
         """Test getting open positions."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         asyncio.run(broker.open_position(
             symbol="XAU",
@@ -312,9 +312,9 @@ class TestAccountManagement:
         assert len(positions) > 0
         assert positions[0]["status"] == "open"
 
-    def test_get_closed_positions(self):
+    def test_get_closed_positions(self, fresh_broker):
         """Test getting closed positions."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open and close a position
         open_result = asyncio.run(broker.open_position(
@@ -342,9 +342,9 @@ class TestTakeProfitStopLoss:
     """Test TP/SL functionality."""
 
     @pytest.mark.asyncio
-    async def test_take_profit_hit_buy(self):
+    async def test_take_profit_hit_buy(self, fresh_broker):
         """Test TP is hit for BUY position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         # Open at 2000, TP at 2100 (5% gain)
         open_result = await broker.open_position(
@@ -366,9 +366,9 @@ class TestTakeProfitStopLoss:
         assert close_result["position"]["result"] in ["win", "take_profit", "manual"]
 
     @pytest.mark.asyncio
-    async def test_stop_loss_hit_buy(self):
+    async def test_stop_loss_hit_buy(self, fresh_broker):
         """Test SL is hit for BUY position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         open_result = await broker.open_position(
             symbol="XAU",
@@ -388,9 +388,9 @@ class TestTakeProfitStopLoss:
         assert close_result["position"]["pnl_usd"] < 0
 
     @pytest.mark.asyncio
-    async def test_take_profit_hit_sell(self):
+    async def test_take_profit_hit_sell(self, fresh_broker):
         """Test TP is hit for SELL position."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         open_result = await broker.open_position(
             symbol="XAG",
@@ -414,9 +414,9 @@ class TestTrailingStop:
 
     @pytest.mark.skip(reason="trailing_stop not implemented in broker")
     @pytest.mark.asyncio
-    async def test_trailing_stop_enabled(self):
+    async def test_trailing_stop_enabled(self, fresh_broker):
         """Test position with trailing stop enabled."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.open_position(
             symbol="XAU",
@@ -433,9 +433,9 @@ class TestTrailingStop:
 
     @pytest.mark.skip(reason="trailing_stop not implemented in broker")
     @pytest.mark.asyncio
-    async def test_trailing_stop_disabled(self):
+    async def test_trailing_stop_disabled(self, fresh_broker):
         """Test position with trailing stop disabled."""
-        broker = SimulatedBroker(initial_balance=10000.0)
+        broker = fresh_broker
         
         result = await broker.open_position(
             symbol="XAU",
@@ -454,14 +454,14 @@ class TestTrailingStop:
 class TestDataProvider:
     """Test data provider functionality."""
 
-    def test_simulated_data_provider_init(self):
+    def test_simulated_data_provider_init(self, fresh_broker):
         """Test SimulatedDataProvider initialization."""
         provider = SimulatedDataProvider()
         
         assert provider is not None
 
     @pytest.mark.asyncio
-    async def test_get_quote(self):
+    async def test_get_quote(self, fresh_broker):
         """Test getting a quote."""
         provider = SimulatedDataProvider()
         
@@ -480,7 +480,7 @@ class TestDataProvider:
             assert "price" in quote
 
     @pytest.mark.asyncio
-    async def test_get_candles(self):
+    async def test_get_candles(self, fresh_broker):
         """Test getting candles."""
         provider = SimulatedDataProvider()
         

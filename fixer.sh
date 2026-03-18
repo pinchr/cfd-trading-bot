@@ -54,19 +54,19 @@ if ! check_service 5173 "Frontend"; then
     fi
 fi
 
-# 2. Check Backend (FastAPI on 8000)
-if ! check_service 8000 "Backend"; then
+# 2. Check Backend (FastAPI on 8001)
+if ! check_service 8001 "Backend"; then
     log "Backend not running - attempting to start..."
     cd /Users/pinchr/dev/cfd-trading-bot/backend
-    nohup python -m uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1 &
+    nohup python -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/backend.log 2>&1 &
     sleep 5
-    if check_service 8000 "Backend"; then
+    if check_service 8001 "Backend"; then
         log "✅ Backend restarted successfully"
         echo "
 ## 🔧 Backend Auto-Restart ($TIMESTAMP)
 **Status:** ✅ Fixed
 
-**Problem:** Backend not responding on port 8000
+**Problem:** Backend not responding on port 8001
 
 **Fix:** Restarted uvicorn server
 
@@ -79,15 +79,15 @@ if ! check_service 8000 "Backend"; then
 fi
 
 # 3. Check Backend API health
-if check_service 8000 "Backend"; then
+if check_service 8001 "Backend"; then
     log "Checking backend API health..."
-    HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health 2>/dev/null || echo "000")
+    HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/api/health 2>/dev/null || echo "000")
     if [ "$HEALTH" = "200" ]; then
         log "✅ Backend API healthy"
     else
         log "⚠️ Backend API returned $HEALTH"
         # Try account endpoint as fallback
-        ACCOUNT=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/account 2>/dev/null || echo "000")
+        ACCOUNT=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/api/account 2>/dev/null || echo "000")
         if [ "$ACCOUNT" = "200" ]; then
             log "✅ Backend API responding (account endpoint OK)"
         else

@@ -50,6 +50,10 @@ def list_strategies() -> List[Dict[str, Any]]:
     """List all available strategies with their metadata"""
     result = []
     for k, v in STRATEGIES.items():
+        # Skip JSONStrategyWrapper objects - they don't have the required attributes
+        if hasattr(v, 'config') and not hasattr(v, 'default_indicators'):
+            continue
+        
         # Convert IndicatorConfig objects to dicts
         indicators = []
         for ind in v.default_indicators:
@@ -61,8 +65,8 @@ def list_strategies() -> List[Dict[str, Any]]:
         result.append(
             {
                 "id": v.id,
-                "name": v.display_name,
-                "description": v.description,
+                "name": getattr(v, 'display_name', v.id),
+                "description": getattr(v, 'description', ''),
                 "tooltip": getattr(v, "tooltip", ""),
                 "default_indicators": indicators,
             }
@@ -1081,3 +1085,297 @@ _adaptive = AdaptiveRegimeStrategy()
 _mms = MMSStrategy()
 STRATEGIES[_adaptive.id] = _adaptive
 STRATEGIES[_mms.id] = _mms
+
+
+class JSONStrategyWrapper:
+    """Wrapper for JSON strategy config to work with old backtest API"""
+    
+    def __init__(self, config: dict, strat_id: str):
+        self.config = config
+        self.id = strat_id
+        self.name = config.get('name', strat_id)
+        
+        # Parse exits config
+        exits = config.get('exits', {})
+        self.sl_type = exits.get('stop_loss', {}).get('type', 'percent_from_entry')
+        self.sl_value = exits.get('stop_loss', {}).get('value', -2.0)
+        self.tp_type = exits.get('take_profit', {}).get('type', 'percent_from_entry')
+        self.tp_value = exits.get('take_profit', {}).get('value', 5.0)
+        
+        # Parse risk config
+        risk = config.get('risk', {})
+        self.leverage = risk.get('leverage', 20)
+        self.risk_per_trade = risk.get('risk_per_trade_pct', 2.0)
+        
+        # Direction
+        self.trade_direction = config.get('trade_direction', 'long_only')
+        
+        # Score config
+        self.score_config = config.get('score', {})
+        self.min_score = self.score_config.get('min_score', 0.01)
+        self.indicator_weights = {}
+        for ind in self.score_config.get('indicators', []):
+            self.indicator_weights[ind['name']] = ind.get('weight', 0)
+        
+        # Filters config
+        self.filters_config = config.get('filters', {})
+    
+    def _normalize_indicator_name(self, name: str) -> str:
+        """Normalize indicator name to match what's passed from TechnicalIndicators"""
+        # Map uppercase to lowercase versions
+        mapping = {
+            'RSI': 'rsi_14',
+            'MACD': 'macd',
+            'MOMENTUM': 'momentum_10',
+            'ADX': 'adx',
+            'BB': 'bollinger_bands',
+            'STOCH': 'stoch_rsi',
+            'SMA': 'sma_20',
+            'VOLUME': 'volume_profile',
+        }
+        return mapping.get(name.upper(), name.lower())
+    
+    def score(self, candles, indicators, symbol, instrument_info, current_price, htf_bias=0.0, news_score=0.0, custom_weights=None):
+        """Calculate strategy score based on JSON config"""
+        try:
+            # Calculate weighted score from indicators
+            total_weight = 0
+            weighted_score = 0
+            components = {}
+            
+            weights = custom_weights or self.indicator_weights
+            
+            for ind_name, weight in weights.items():
+                if weight == 0:
+                    continue
+                
+                # Normalize indicator name to match what's passed from TechnicalIndicators
+                normalized_name = self._normalize_indicator_name(ind_name)
+                
+                # Get indicator value from indicators dict
+                ind_value = None
+                ind_data = indicators.get(normalized_name)
+                
+                if ind_data:
+                    # Handle different indicator formats
+                    if isinstance(ind_data, dict):
+                        # MACD: {"macd_line": X, "signal_line": Y, "histogram": Z}
+                        if 'macd_line' in ind_data:
+                            ind_value = ind_data.get('histogram', 0)
+                        # ADX: {"adx": X, "plus_di": Y, "minus_di": Z}
+                        elif 'adx' in ind_data:
+                            # ADX value
+                            adx_val = ind_data.get('adx', 0)
+                            # DI crossover as signal
+                            plus_di = ind_data.get('plus_di', 0)
+                            minus_di = ind_data.get('minus_di', 0)
+                            if plus_di > minus_di:
+                                ind_value = min(1, adx_val / 100)
+                            elif minus_di > plus_di:
+                                ind_value = max(-1, -adx_val / 100)
+                            else:
+                                ind_value = 0
+                        # Bollinger Bands: {"upper": X, "middle": Y, "lower": Z, "position": P}
+                        elif 'position' in ind_data:
+                            ind_value = ind_data.get('position', 0) * 2 - 1  # Normalize 0-1 to -1 to 1
+                        # Stoch RSI: {"k": X, "d": Y}
+                        elif 'k' in ind_data:
+                            ind_value = (ind_data.get('k', 50) - 50) / 50  # Normalize 0-100 to -1 to 1
+                        else:
+                            # Generic: try to find first numeric value
+                            for k, v in ind_data.items():
+                                if isinstance(v, (int, float)):
+                                    ind_value = v
+                                    break
+                    elif isinstance(ind_data, (int, float)):
+                        ind_value = ind_data
+                    
+                    # Normalize values to -1 to 1 range
+                    if ind_value is not None:
+                        # For RSI-like (0-100), normalize
+                        if 0 <= ind_value <= 100:
+                            if ind_value > 70:
+                                ind_value = -((ind_value - 70) / 30)
+                            elif ind_value < 30:
+                                ind_value = ((30 - ind_value) / 30)
+                            else:
+                                ind_value = 0
+                        
+                        weighted_score += ind_value * weight
+                        total_weight += weight
+                        components[ind_name] = ind_value
+            
+            # Normalize by total weight
+            if total_weight > 0:
+                final_score = weighted_score / total_weight
+            else:
+                final_score = 0
+            
+            # Apply min_score threshold
+            if abs(final_score) < self.min_score:
+                return {
+                    "score": 0,
+                    "direction": "neutral",
+                    "components": components,
+                    "confidence": 0,
+                    "take_profit": 0,
+                    "stop_loss": 0,
+                    "risk_reward_ratio": 0,
+                    "technical_score": 0,
+                }
+            
+            # Determine direction based on score
+            if final_score > 0:
+                direction = "buy"
+            elif final_score < 0:
+                direction = "sell"
+            else:
+                direction = "neutral"
+            
+            # Check trade direction filter
+            if self.trade_direction == "long_only" and direction == "sell":
+                return {
+                    "score": 0,
+                    "direction": "neutral",
+                    "components": components,
+                    "confidence": 0,
+                    "take_profit": 0,
+                    "stop_loss": 0,
+                    "risk_reward_ratio": 0,
+                    "technical_score": 0,
+                }
+            elif self.trade_direction == "short_only" and direction == "buy":
+                return {
+                    "score": 0,
+                    "direction": "neutral",
+                    "components": components,
+                    "confidence": 0,
+                    "take_profit": 0,
+                    "stop_loss": 0,
+                    "risk_reward_ratio": 0,
+                    "technical_score": 0,
+                }
+            
+            # Calculate TP/SL prices
+            if direction != "neutral":
+                tp_value = abs(self.tp_value) / 100
+                sl_value = abs(self.sl_value) / 100
+                
+                if direction == "buy":
+                    take_profit = current_price * (1 + tp_value)
+                    stop_loss = current_price * (1 - sl_value)
+                else:
+                    take_profit = current_price * (1 - tp_value)
+                    stop_loss = current_price * (1 + sl_value)
+                
+                risk_reward = tp_value / sl_value if sl_value > 0 else 0
+            else:
+                take_profit = 0
+                stop_loss = 0
+                risk_reward = 0
+            
+            return {
+                "score": final_score,
+                "direction": direction,
+                "components": components,
+                "confidence": abs(final_score),
+                "take_profit": take_profit,
+                "stop_loss": stop_loss,
+                "risk_reward_ratio": risk_reward,
+                "technical_score": abs(final_score),
+            }
+            
+        except Exception as e:
+            # Return neutral on any error
+            return {
+                "score": 0,
+                "direction": "neutral",
+                "components": {},
+                "confidence": 0,
+                "take_profit": 0,
+                "stop_loss": 0,
+                "risk_reward_ratio": 0,
+                "technical_score": 0,
+            }
+    
+    def to_config(self, used_indicators=None):
+        """Convert to config dict for API response"""
+        # Build indicators list from score config
+        indicators = []
+        score_config = self.config.get('score', {})
+        for ind in score_config.get('indicators', []):
+            ind_name = ind.get('name', '')
+            indicators.append({
+                "id": ind_name,
+                "enabled": ind_name.upper() in [k.upper() for k in (used_indicators or [])],
+                "settings": {}
+            })
+        
+        return {
+            "id": self.id,
+            "display_name": self.name,
+            "used_indicators": list(self.indicator_weights.keys()),
+            "default_indicators": indicators,
+        }
+
+
+# Load strategies: try DB first, then fall back to JSON
+def load_strategies_from_db_or_json():
+    """Load strategies from database first, then fall back to JSON file."""
+    loaded_count = 0
+    
+    # Try to load from database first
+    try:
+        from database import list_strategies_db, get_strategy_from_db
+        
+        db_strategies = list_strategies_db()
+        if db_strategies:
+            for config in db_strategies:
+                strat_id = config.get("id")
+                if strat_id:
+                    wrapper = JSONStrategyWrapper(config, strat_id)
+                    STRATEGIES[strat_id] = wrapper
+                    loaded_count += 1
+            print(f"Loaded {loaded_count} strategies from database")
+            return loaded_count
+    except Exception as e:
+        print(f"Could not load strategies from DB: {e}")
+    
+    # Fall back to JSON file
+    try:
+        from strategy.config_loader import load_strategies_from_file
+        from pathlib import Path
+        
+        # Try to load from multiple possible locations
+        json_path = Path("strategy/strategies.json")
+        if not json_path.exists():
+            json_path = Path("../strategy/strategies.json")
+        if not json_path.exists():
+            json_path = Path(__file__).parent / "strategy" / "strategies.json"
+        
+        if json_path.exists():
+            manager = load_strategies_from_file(str(json_path))
+            for strat_id, strat in manager.strategies.items():
+                # Create wrapper for backtest compatibility
+                wrapper = JSONStrategyWrapper(strat.config, strat_id)
+                STRATEGIES[strat_id] = wrapper
+                loaded_count += 1
+            print(f"Loaded {loaded_count} strategies from JSON file")
+    except Exception as e:
+        print(f"Warning: Could not load JSON strategies: {e}")
+    
+    return loaded_count
+
+
+# Initial load
+load_strategies_from_db_or_json()
+
+
+def reload_strategies():
+    """Reload strategies from DB (for cron job or manual refresh)."""
+    global STRATEGIES
+    STRATEGIES = {}  # Clear existing
+    STRATEGIES["adaptive_regime"] = AdaptiveRegimeStrategy()
+    STRATEGIES["mms"] = MMSStrategy()
+    load_strategies_from_db_or_json()
+    print(f"Reloaded strategies. Total: {len(STRATEGIES)}")
