@@ -38,3 +38,35 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+
+# Runtime data paper-shadowu (nie commitujemy - to dane z życia)
+backend/data/shadow_orders.jsonl
+backend/data/circuit_state.json
+
+# Run 35: pobrane archiwa Binance bookTicker (ZIP-y + cache .stats) - nie commitujemy
+run35_data/
+
+# Run 37c: surowe snapshoty HTML stron fee giełd (Wayback) - nie commitujemy
+run37c_data/
+run38_data/
+run39_data/depth/
+run39_data/*.stats
+
+# --- guardraile repo (dodane 2026-10-28 po incydencie cc1dab5) ---
+# Wyniki binarne .pkl (do 1,2 GB na plik) — regenerowalne ze skryptow, nie w repo
+*.pkl
+# Surowe dane/archiwa runow (*_data/) — regenerowalne, zjadaly 254 MB w commicie
+*_data/
+
+# Katalogi danych runow w formacie runNN_<wariant>/ (run48_bingx, run48_kucoin, ...)
+# - regex 'run4*_*/' pokrywa run4x_*; katalogi run20_*/run26_*/ pozostaja objete
+#   juz istniejaczym regula (gitignore nie rusza plikow juz sledzonych)
+run4*_*/
+
+# Kopie konfiguracji z sekretami (np. backend/.env.bak.20261028-0911 zawiera
+# MONGO_URI Atlas z loginem i haslem). NIGDY nie commitowac. UWAGA: monitor.sh
+# robi 'git add -A' przy kazdym restarcie backendu -> taki plik wpadlby do
+# gita wraz z sekretem.
+*.bak
+*.bak.*
+backend/.env.bak*

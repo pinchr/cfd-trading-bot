@@ -12,7 +12,7 @@ from typing import List, Dict
 sys.path.insert(0, 'backend')
 from binance_data import fetch_binance_candles
 
-MONGO_URI = "mongodb+srv://aibypiotreo:u0BC9klgc0C494fA@cluster0.wnlt6se.mongodb.net/?maxPoolSize=1&retryWrites=false&w=majority&tls=true&tlsAllowInvalidCertificates=true"
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/cfd_trading_bot")
 
 
 def sync_symbol(symbol: str, resolution: str = '60', days_back: int = 90):
